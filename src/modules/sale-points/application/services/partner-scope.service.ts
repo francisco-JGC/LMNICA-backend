@@ -33,8 +33,10 @@ export class PartnerScopeService {
   ): Promise<AccessibleSalePointScope> {
     if (role === UserRole.ADMIN) return null;
     if (role === UserRole.PARTNER) {
-      const owned = await this.salePoints.findByPartner(requesterId);
-      return owned.map((sp) => sp.id);
+      // Visibility = encargado (owner_partner_id) ∪ assigned partners.
+      // Assigned partners get read-only access to reports/dashboards for
+      // sucursales they're not the encargado of.
+      return this.salePoints.findVisibleSalePointIdsForPartner(requesterId);
     }
     // Sellers are scoped upstream by their own sellerId — no additional
     // sale-point restriction needed here. Endpoints that shouldn't be

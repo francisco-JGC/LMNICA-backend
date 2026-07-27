@@ -42,6 +42,7 @@ export class ToggleSalePoint
     else salePoint.deactivate();
 
     await this.salePoints.save(salePoint);
-    return toSalePointOutput(salePoint);
+    const assigned = await this.salePoints.getAssignedPartnerIds(salePoint.id);
+    return toSalePointOutput(salePoint, assigned);
   }
 }

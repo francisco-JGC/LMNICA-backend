@@ -57,6 +57,7 @@ export class UpdateSalePoint
       ownerPartnerId: input.ownerPartnerId,
     });
     await this.salePoints.save(salePoint);
-    return toSalePointOutput(salePoint);
+    const assigned = await this.salePoints.getAssignedPartnerIds(salePoint.id);
+    return toSalePointOutput(salePoint, assigned);
   }
 }

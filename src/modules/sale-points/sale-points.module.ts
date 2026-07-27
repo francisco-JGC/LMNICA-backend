@@ -7,15 +7,20 @@ import { CreateSalePoint } from './application/use-cases/create-sale-point.use-c
 import { ListAllSalePoints } from './application/use-cases/list-all-sale-points.use-case';
 import { ListSalePointsForUser } from './application/use-cases/list-sale-points-for-user.use-case';
 import { PartnerScopeService } from './application/services/partner-scope.service';
+import { SetAssignedPartners } from './application/use-cases/set-assigned-partners.use-case';
 import { ToggleSalePoint } from './application/use-cases/toggle-sale-point.use-case';
 import { UpdateSalePoint } from './application/use-cases/update-sale-point.use-case';
 import { SalePointsController } from './infrastructure/http/controllers/sale-points.controller';
+import { SalePointAssignedPartnerOrmEntity } from './infrastructure/persistence/entities/sale-point-assigned-partner.orm-entity';
 import { SalePointOrmEntity } from './infrastructure/persistence/entities/sale-point.orm-entity';
 import { TypeOrmSalePointsRepository } from './infrastructure/persistence/repositories/typeorm-sale-points.repository';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([SalePointOrmEntity]),
+    TypeOrmModule.forFeature([
+      SalePointOrmEntity,
+      SalePointAssignedPartnerOrmEntity,
+    ]),
     forwardRef(() => UsersModule),
   ],
   controllers: [SalePointsController],
@@ -25,6 +30,7 @@ import { TypeOrmSalePointsRepository } from './infrastructure/persistence/reposi
     ListAllSalePoints,
     ListSalePointsForUser,
     PartnerScopeService,
+    SetAssignedPartners,
     ToggleSalePoint,
     UpdateSalePoint,
   ],

@@ -6,6 +6,7 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Put,
 } from '@nestjs/common';
 
 import { CurrentUser } from '../../../../auth/infrastructure/http/decorators/current-user.decorator';
@@ -16,9 +17,11 @@ import { type SalePointOutput } from '../../../application/dtos/sale-point.outpu
 import { CreateSalePoint } from '../../../application/use-cases/create-sale-point.use-case';
 import { ListAllSalePoints } from '../../../application/use-cases/list-all-sale-points.use-case';
 import { ListSalePointsForUser } from '../../../application/use-cases/list-sale-points-for-user.use-case';
+import { SetAssignedPartners } from '../../../application/use-cases/set-assigned-partners.use-case';
 import { ToggleSalePoint } from '../../../application/use-cases/toggle-sale-point.use-case';
 import { UpdateSalePoint } from '../../../application/use-cases/update-sale-point.use-case';
 import { CreateSalePointHttpDto } from '../dtos/create-sale-point-http.dto';
+import { SetAssignedPartnersHttpDto } from '../dtos/set-assigned-partners-http.dto';
 import { ToggleSalePointHttpDto } from '../dtos/toggle-sale-point-http.dto';
 import { UpdateSalePointHttpDto } from '../dtos/update-sale-point-http.dto';
 
@@ -28,6 +31,7 @@ export class SalePointsController {
     private readonly createSalePoint: CreateSalePoint,
     private readonly listAllSalePoints: ListAllSalePoints,
     private readonly listSalePointsForUser: ListSalePointsForUser,
+    private readonly setAssignedPartners: SetAssignedPartners,
     private readonly toggleSalePoint: ToggleSalePoint,
     private readonly updateSalePoint: UpdateSalePoint,
   ) {}
@@ -74,5 +78,20 @@ export class SalePointsController {
     @Body() dto: UpdateSalePointHttpDto,
   ): Promise<SalePointOutput> {
     return this.updateSalePoint.execute({ id, ...dto });
+  }
+
+  // Bulk-replace the list of socios asignados (read-only visibility). The
+  // encargado is set via PATCH :id above; this endpoint is only for the
+  // additional-visibility list.
+  @Put(':id/assigned-partners')
+  @Roles(UserRole.ADMIN)
+  setAssigned(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() dto: SetAssignedPartnersHttpDto,
+  ): Promise<SalePointOutput> {
+    return this.setAssignedPartners.execute({
+      salePointId: id,
+      partnerIds: dto.partnerIds,
+    });
   }
 }
