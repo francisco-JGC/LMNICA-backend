@@ -78,16 +78,44 @@ export class TicketEvaluator {
     winningNumber: string,
   ): TicketLineEvaluation {
     const isWinner = this.isMatch(gameType, line.label, winningNumber);
+    const wonPrize = isWinner
+      ? this.resolvePrize(line, gameType, winningNumber)
+      : 0;
     return {
       label: line.label,
       amount: line.amount,
       prize: line.prize,
-      wonPrize: isWinner ? line.prize : 0,
+      wonPrize,
       isWinner,
       winningNumber,
       subGameId: line.subGameId,
       subGameName: line.subGameName,
     };
+  }
+
+  /**
+   * Regla "premio par": para THREE_DIGIT, si la línea gana por fácil Y el
+   * número ganador tiene dígitos repetidos, se paga el snapshot
+   * `line.pairEasyPrize` (que la caja precalculó con el multiplicador
+   * `pair_easy_multiplier` efectivo de la sucursal). Si el snapshot no
+   * existe — cliente viejo o sucursal sin multiplicador par configurado —
+   * cae al `line.prize` estándar sin romper.
+   */
+  private resolvePrize(
+    line: TicketLine,
+    gameType: GameType,
+    winningNumber: string,
+  ): number {
+    if (gameType !== GameType.THREE_DIGIT) return line.prize;
+    const isFalso = /\(F\)/i.test(line.label);
+    if (!isFalso) return line.prize;
+    if (line.pairEasyPrize === null) return line.prize;
+    if (!this.hasRepeatedDigits(winningNumber)) return line.prize;
+    return line.pairEasyPrize;
+  }
+
+  private hasRepeatedDigits(value: string): boolean {
+    return new Set(value.split('')).size < value.length;
   }
 
   private isMatch(

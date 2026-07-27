@@ -31,6 +31,12 @@ export class CreateTicketLineHttpDto {
   prize!: number;
 
   @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  pairEasyPrize?: number | null;
+
+  @IsOptional()
   @IsString()
   @MaxLength(40)
   subGameId?: string | null;

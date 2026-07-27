@@ -98,18 +98,25 @@ export class ListEffectiveGamePrizes
       const override = overrideByGameId.get(game.id) ?? null;
       const exactDefault = game.exactMultiplier;
       const easyDefault = game.easyMultiplier;
+      const pairEasyDefault = game.pairEasyMultiplier;
       const overrideExact = override?.exactMultiplier ?? null;
       const overrideEasy = override?.easyMultiplier ?? null;
+      const overridePairEasy = override?.pairEasyMultiplier ?? null;
       return {
         gameId: game.id,
+        gameSlug: game.slug,
         gameName: game.name,
+        gameType: game.type,
         exactDefault,
         easyDefault,
+        pairEasyDefault,
         exactMultiplier: overrideExact ?? exactDefault,
         easyMultiplier: overrideEasy ?? easyDefault,
+        pairEasyMultiplier: overridePairEasy ?? pairEasyDefault,
         overrideId: override?.id ?? null,
         overrideExact,
         overrideEasy,
+        overridePairEasy,
         hasOverride: override !== null,
       };
     });

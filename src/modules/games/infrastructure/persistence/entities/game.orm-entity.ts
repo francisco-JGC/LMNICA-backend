@@ -30,6 +30,9 @@ export class GameOrmEntity {
   @Column({ type: 'integer', name: 'easy_multiplier', nullable: true })
   easyMultiplier!: number | null;
 
+  @Column({ type: 'integer', name: 'pair_easy_multiplier', nullable: true })
+  pairEasyMultiplier!: number | null;
+
   @Column({ type: 'varchar', name: 'image_path', length: 255, nullable: true })
   imagePath!: string | null;
 

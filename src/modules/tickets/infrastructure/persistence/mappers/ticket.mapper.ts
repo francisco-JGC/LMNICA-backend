@@ -15,6 +15,7 @@ export class TicketMapper {
             label: line.label,
             amount: line.amount,
             prize: line.prize,
+            pairEasyPrize: line.pairEasyPrize ?? null,
             subGameId: line.subGameId,
             subGameName: line.subGameName,
             orderIndex: line.orderIndex,
@@ -68,6 +69,7 @@ export class TicketMapper {
       lineEntity.label = line.label;
       lineEntity.amount = line.amount;
       lineEntity.prize = line.prize;
+      lineEntity.pairEasyPrize = line.pairEasyPrize;
       lineEntity.subGameId = line.subGameId;
       lineEntity.subGameName = line.subGameName;
       lineEntity.orderIndex = line.orderIndex;

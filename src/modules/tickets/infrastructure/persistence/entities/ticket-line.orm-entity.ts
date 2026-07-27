@@ -31,6 +31,9 @@ export class TicketLineOrmEntity {
   @Column({ type: 'integer' })
   prize!: number;
 
+  @Column({ type: 'integer', name: 'pair_easy_prize', nullable: true })
+  pairEasyPrize!: number | null;
+
   @Column({ type: 'varchar', length: 40, name: 'sub_game_id', nullable: true })
   subGameId!: string | null;
 

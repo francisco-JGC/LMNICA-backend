@@ -41,6 +41,7 @@ export class GamesController {
       type: dto.type,
       exactMultiplier: dto.exactMultiplier,
       easyMultiplier: dto.easyMultiplier,
+      pairEasyMultiplier: dto.pairEasyMultiplier,
       imagePath: dto.imagePath,
       orderIndex: dto.orderIndex,
     });
@@ -67,6 +68,7 @@ export class GamesController {
       name: dto.name,
       exactMultiplier: dto.exactMultiplier,
       easyMultiplier: dto.easyMultiplier,
+      pairEasyMultiplier: dto.pairEasyMultiplier,
       imagePath: dto.imagePath,
       orderIndex: dto.orderIndex,
     });

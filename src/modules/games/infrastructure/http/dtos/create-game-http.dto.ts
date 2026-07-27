@@ -44,6 +44,12 @@ export class CreateGameHttpDto {
   easyMultiplier: number | null = null;
 
   @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  pairEasyMultiplier: number | null = null;
+
+  @IsOptional()
   @IsString()
   @MaxLength(255)
   imagePath: string | null = null;

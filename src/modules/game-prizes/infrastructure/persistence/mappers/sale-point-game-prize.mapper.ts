@@ -8,6 +8,7 @@ export class SalePointGamePrizeMapper {
       gameId: orm.gameId,
       exactMultiplier: orm.exactMultiplier ?? null,
       easyMultiplier: orm.easyMultiplier ?? null,
+      pairEasyMultiplier: orm.pairEasyMultiplier ?? null,
       createdAt: orm.createdAt,
       updatedAt: orm.updatedAt,
     });
@@ -20,6 +21,7 @@ export class SalePointGamePrizeMapper {
     entity.gameId = prize.gameId;
     entity.exactMultiplier = prize.exactMultiplier;
     entity.easyMultiplier = prize.easyMultiplier;
+    entity.pairEasyMultiplier = prize.pairEasyMultiplier;
     entity.createdAt = prize.createdAt;
     entity.updatedAt = prize.updatedAt;
     return entity;

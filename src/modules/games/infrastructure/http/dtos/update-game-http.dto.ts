@@ -26,6 +26,12 @@ export class UpdateGameHttpDto {
   easyMultiplier?: number | null;
 
   @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  pairEasyMultiplier?: number | null;
+
+  @IsOptional()
   @IsString()
   @MaxLength(255)
   imagePath?: string | null;

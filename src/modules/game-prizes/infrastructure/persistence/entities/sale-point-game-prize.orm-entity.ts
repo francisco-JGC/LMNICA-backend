@@ -43,6 +43,9 @@ export class SalePointGamePrizeOrmEntity {
   @Column({ type: 'integer', name: 'easy_multiplier', nullable: true })
   easyMultiplier!: number | null;
 
+  @Column({ type: 'integer', name: 'pair_easy_multiplier', nullable: true })
+  pairEasyMultiplier!: number | null;
+
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt!: Date;
 

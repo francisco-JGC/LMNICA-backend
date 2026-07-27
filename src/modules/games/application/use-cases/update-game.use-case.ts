@@ -23,6 +23,7 @@ export class UpdateGame implements UseCase<UpdateGameApplicationInput, GameOutpu
       name: input.name,
       exactMultiplier: input.exactMultiplier,
       easyMultiplier: input.easyMultiplier,
+      pairEasyMultiplier: input.pairEasyMultiplier,
       imagePath: input.imagePath,
       orderIndex: input.orderIndex,
     });

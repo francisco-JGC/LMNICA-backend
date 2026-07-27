@@ -48,6 +48,7 @@ export class GamePrizesController {
       gameId: dto.gameId,
       exactMultiplier: dto.exactMultiplier,
       easyMultiplier: dto.easyMultiplier,
+      pairEasyMultiplier: dto.pairEasyMultiplier,
     });
   }
 }

@@ -90,6 +90,7 @@ export class CreateTicket implements UseCase<CreateTicketApplicationInput, Ticke
           label: raw.label,
           amount: raw.amount,
           prize: raw.prize,
+          pairEasyPrize: raw.pairEasyPrize ?? null,
           subGameId: raw.subGameId ?? null,
           subGameName: raw.subGameName ?? null,
           orderIndex: i,

@@ -9,6 +9,7 @@ export class GameMapper {
       type: orm.type,
       exactMultiplier: orm.exactMultiplier,
       easyMultiplier: orm.easyMultiplier,
+      pairEasyMultiplier: orm.pairEasyMultiplier,
       imagePath: orm.imagePath,
       orderIndex: orm.orderIndex,
       isActive: orm.isActive,
@@ -25,6 +26,7 @@ export class GameMapper {
     entity.type = game.type;
     entity.exactMultiplier = game.exactMultiplier;
     entity.easyMultiplier = game.easyMultiplier;
+    entity.pairEasyMultiplier = game.pairEasyMultiplier;
     entity.imagePath = game.imagePath;
     entity.orderIndex = game.orderIndex;
     entity.isActive = game.isActive;
