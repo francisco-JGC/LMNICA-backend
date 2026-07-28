@@ -3,11 +3,19 @@ import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 
 import type { UseCase } from '../../../../shared/application/use-case';
-import { toBusinessWallClock } from '../../../../shared/domain/business-time';
+import {
+  fromBusinessWallClock,
+  parseHhmmToMinutes,
+  toBusinessWallClock,
+} from '../../../../shared/domain/business-time';
 import {
   NotFoundError,
   ValidationError,
 } from '../../../../shared/domain/errors/domain.error';
+import {
+  FEATURE_FLAGS_REPOSITORY,
+  type FeatureFlagsRepository,
+} from '../../../feature-flags/domain/repositories/feature-flags.repository';
 import {
   DRAW_SCHEDULES_REPOSITORY,
   type DrawSchedulesRepository,
@@ -29,7 +37,19 @@ import {
   USERS_REPOSITORY,
   type UsersRepository,
 } from '../../../users/domain/repositories/users.repository';
+import type { DrawSchedule } from '../../../games/domain/entities/draw-schedule.entity';
 import { Ticket } from '../../domain/entities/ticket.entity';
+
+/**
+ * Cierre nocturno: hora Managua a partir de la cual el juego se reabre
+ * al día siguiente. Espeja `_kNightlyReopenHour` del móvil.
+ */
+const NIGHTLY_REOPEN_HOUR = 6;
+
+/** Gracia post-sorteo (mismo valor que el frontend). */
+const POST_DRAW_GRACE_MS = 3 * 60 * 1000;
+
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
 import {
   TICKETS_REPOSITORY,
   type TicketsRepository,
@@ -54,6 +74,8 @@ export class CreateTicket implements UseCase<CreateTicketApplicationInput, Ticke
     private readonly schedules: DrawSchedulesRepository,
     @Inject(SALE_LIMITS_REPOSITORY)
     private readonly saleLimits: SaleLimitsRepository,
+    @Inject(FEATURE_FLAGS_REPOSITORY)
+    private readonly featureFlags: FeatureFlagsRepository,
     @Inject(FOLIO_GENERATOR) private readonly folio: FolioGenerator,
     @InjectDataSource() private readonly dataSource: DataSource,
     private readonly resolveNextDraw: ResolveNextDraw,
@@ -97,6 +119,12 @@ export class CreateTicket implements UseCase<CreateTicketApplicationInput, Ticke
         }),
     );
 
+    // Cierre nocturno: después del último sorteo del día, el juego queda
+    // bloqueado hasta las 06:00 (Managua) del día siguiente. Espeja la
+    // regla que aplica el móvil en `GameLockController._buildWindows`;
+    // vive acá también para que un curl no pueda saltearse la restricción.
+    await this.enforceNightlyLock(input.gameId);
+
     const draw = input.drawAt
       ? await this.validateExplicitDraw(input.gameId, input.drawAt)
       : await this.resolveNextDraw.execute({
@@ -127,6 +155,95 @@ export class CreateTicket implements UseCase<CreateTicketApplicationInput, Ticke
 
     await this.tickets.save(ticket);
     return toTicketOutput(ticket);
+  }
+
+  /**
+   * Rechaza si `now` cae dentro de una ventana nocturna del juego. La
+   * ventana va desde el `lockEnd` del último sorteo del día (drawAt + 3m
+   * de gracia) hasta las 06:00 Managua del día siguiente. Chequeamos
+   * "hoy" y "ayer" (biz-day) porque la ventana cruza medianoche — la
+   * relevante es la del día cuyo último sorteo ya pasó.
+   *
+   * Gate por feature flag `nightly_lock`: cuando el admin la apaga desde
+   * el panel web (típicamente para pruebas), esta validación es un no-op.
+   */
+  private async enforceNightlyLock(gameId: string): Promise<void> {
+    const enabled = await this.featureFlags.isEnabled('nightly_lock');
+    if (!enabled) return;
+
+    const schedules = (
+      await this.schedules.findByGameId(gameId)
+    ).filter((s) => s.isActive);
+    if (schedules.length === 0) return;
+
+    const now = new Date();
+    const nowBiz = toBusinessWallClock(now);
+    // Día base = hoy si ya pasaron las 06:00; ayer si aún es madrugada.
+    // Con eso cubrimos el caso donde la ventana viene del día anterior.
+    const bizMidnight = fromBusinessWallClock(
+      nowBiz.year,
+      nowBiz.month,
+      nowBiz.day,
+      0,
+      0,
+    );
+    const baseDay =
+      nowBiz.hour < NIGHTLY_REOPEN_HOUR
+        ? new Date(bizMidnight.getTime() - MS_PER_DAY)
+        : bizMidnight;
+    const baseDayBiz = toBusinessWallClock(baseDay);
+
+    const lastLockEnd = this.lastLockEndForDay(schedules, baseDayBiz);
+    if (!lastLockEnd) return;
+
+    const nextDay = new Date(
+      fromBusinessWallClock(
+        baseDayBiz.year,
+        baseDayBiz.month,
+        baseDayBiz.day,
+        0,
+        0,
+      ).getTime() + MS_PER_DAY,
+    );
+    const nextDayBiz = toBusinessWallClock(nextDay);
+    const reopenAt = fromBusinessWallClock(
+      nextDayBiz.year,
+      nextDayBiz.month,
+      nextDayBiz.day,
+      NIGHTLY_REOPEN_HOUR,
+      0,
+    );
+
+    if (now >= lastLockEnd && now < reopenAt) {
+      throw new ValidationError(
+        `El juego está cerrado hasta las 0${NIGHTLY_REOPEN_HOUR}:00 del día siguiente`,
+      );
+    }
+  }
+
+  /**
+   * `lockEnd` (drawAt + 3m gracia) del último sorteo del día base indicado.
+   * Devuelve null si el juego no tiene sorteos ese día.
+   */
+  private lastLockEndForDay(
+    schedules: DrawSchedule[],
+    day: { year: number; month: number; day: number; dayOfWeek: number },
+  ): Date | null {
+    let last: Date | null = null;
+    for (const s of schedules) {
+      if (!s.appliesTo(day.dayOfWeek)) continue;
+      const minutes = parseHhmmToMinutes(s.drawTime);
+      const drawAt = fromBusinessWallClock(
+        day.year,
+        day.month,
+        day.day,
+        Math.floor(minutes / 60),
+        minutes % 60,
+      );
+      const lockEnd = new Date(drawAt.getTime() + POST_DRAW_GRACE_MS);
+      if (!last || lockEnd > last) last = lockEnd;
+    }
+    return last;
   }
 
   private async validateExplicitDraw(

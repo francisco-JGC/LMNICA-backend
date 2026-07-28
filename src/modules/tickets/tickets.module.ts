@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
+import { FeatureFlagsModule } from '../feature-flags/feature-flags.module';
 import { GamesModule } from '../games/games.module';
 import { SaleLimitsModule } from '../sale-limits/sale-limits.module';
 import { SalePointsModule } from '../sale-points/sale-points.module';
@@ -34,6 +35,7 @@ import { TimestampFolioGenerator } from './infrastructure/services/timestamp-fol
     SalePointsModule,
     SaleLimitsModule,
     UsersModule,
+    FeatureFlagsModule,
   ],
   controllers: [TicketsController],
   providers: [
