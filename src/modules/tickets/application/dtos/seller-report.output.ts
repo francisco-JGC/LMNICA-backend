@@ -11,6 +11,12 @@ export interface SellerReportRow {
   paidCount: number;
   billed: number;
   paidPrize: number;
+  /**
+   * Total ganado por los tickets del vendedor en el rango, esté pagado o
+   * no (evaluado contra `draw_results.winning_number`). "Lo que debería
+   * entregar" en la UI. Tickets sin sorteo resuelto contribuyen 0.
+   */
+  wonPrize: number;
   paymentPercentage: number | null;
   /**
    * `Math.round(billed * paymentPercentage / 100)` when the seller has a

@@ -1,7 +1,9 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
+import { GamesModule } from '../games/games.module';
 import { SalePointsModule } from '../sale-points/sale-points.module';
+import { TicketsModule } from '../tickets/tickets.module';
 import { UsersModule } from '../users/users.module';
 import { CreateMovement } from './application/use-cases/create-movement.use-case';
 import { DeleteMovement } from './application/use-cases/delete-movement.use-case';
@@ -18,6 +20,8 @@ import { TypeOrmMovementsRepository } from './infrastructure/persistence/reposit
     TypeOrmModule.forFeature([MovementOrmEntity]),
     SalePointsModule,
     UsersModule,
+    GamesModule,
+    TicketsModule,
   ],
   controllers: [MovementsController],
   providers: [

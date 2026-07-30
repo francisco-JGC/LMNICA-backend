@@ -3,12 +3,26 @@ import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 
 import type { UseCase } from '../../../../shared/application/use-case';
+import {
+  DRAW_RESULTS_REPOSITORY,
+  type DrawResultsRepository,
+} from '../../../games/domain/repositories/draw-results.repository';
+import {
+  GAMES_REPOSITORY,
+  type GamesRepository,
+} from '../../../games/domain/repositories/games.repository';
 import { PartnerScopeService } from '../../../sale-points/application/services/partner-scope.service';
 import {
   USERS_REPOSITORY,
   type UsersRepository,
 } from '../../../users/domain/repositories/users.repository';
 import { UserRole } from '../../../users/domain/value-objects/user-role';
+import {
+  TICKETS_REPOSITORY,
+  type TicketsRepository,
+} from '../../domain/repositories/tickets.repository';
+import { TicketStatus } from '../../domain/value-objects/ticket-status';
+import { TicketEvaluator } from '../services/ticket-evaluator.service';
 import type {
   SellerReportOutput,
   SellerReportRow,
@@ -35,7 +49,8 @@ interface RawRow {
 /**
  * Per-seller aggregates for the "Reporte Diario del Vendedor" page:
  * how much each seller billed, how much was paid out on their winning
- * tickets, and their weekly commission based on `paymentPercentage`.
+ * tickets, how much they SHOULD pay (wonPrize includes unpaid winnings),
+ * and their weekly commission based on `paymentPercentage`.
  */
 @Injectable()
 export class GetSellerReport
@@ -44,7 +59,13 @@ export class GetSellerReport
   constructor(
     @InjectDataSource() private readonly dataSource: DataSource,
     @Inject(USERS_REPOSITORY) private readonly users: UsersRepository,
+    @Inject(TICKETS_REPOSITORY)
+    private readonly tickets: TicketsRepository,
+    @Inject(GAMES_REPOSITORY) private readonly games: GamesRepository,
+    @Inject(DRAW_RESULTS_REPOSITORY)
+    private readonly drawResults: DrawResultsRepository,
     private readonly scope: PartnerScopeService,
+    private readonly evaluator: TicketEvaluator,
   ) {}
 
   async execute(
@@ -92,6 +113,16 @@ export class GetSellerReport
 
     if (rows.length === 0) return { items: [] };
 
+    // wonPrize (paid o no) por vendedor — evaluamos los tickets contra
+    // sus resultados. Ver `GetMovementsBalance.computeWonBySalePoint`.
+    const wonBySeller = await this.computeWonBySeller({
+      sellerId: effectiveSellerId,
+      salePointId: input.salePointId,
+      salePointIds: partnerScope ?? undefined,
+      from: input.from,
+      to: input.to,
+    });
+
     // Resolve seller info in one round trip to compute names and salaries.
     const sellerIds = rows.map((r) => r.seller_id);
     const sellers = await this.users.findByIds(sellerIds);
@@ -110,6 +141,7 @@ export class GetSellerReport
         paidCount: Number(r.paid_count),
         billed,
         paidPrize: Number(r.paid_prize),
+        wonPrize: wonBySeller.get(r.seller_id) ?? 0,
         paymentPercentage: pct,
         salary,
       };
@@ -120,5 +152,57 @@ export class GetSellerReport
     items.sort((a, b) => b.billed - a.billed);
 
     return { items };
+  }
+
+  /**
+   * Evalúa tickets del rango y devuelve `sellerId -> totalWonPrize`.
+   * Mismo approach que `GetMovementsBalance.computeWonBySalePoint`.
+   */
+  private async computeWonBySeller(filters: {
+    sellerId?: string;
+    salePointId?: string;
+    salePointIds?: string[];
+    from?: Date;
+    to?: Date;
+  }): Promise<Map<string, number>> {
+    const tickets = await this.tickets.findMany({
+      status: TicketStatus.VALID,
+      sellerId: filters.sellerId,
+      salePointId: filters.salePointId,
+      salePointIds: filters.salePointIds,
+      from: filters.from,
+      to: filters.to,
+      limit: 100_000,
+      offset: 0,
+    });
+    if (tickets.length === 0) return new Map();
+
+    let minDrawAt = tickets[0].drawAt;
+    let maxDrawAt = tickets[0].drawAt;
+    for (const t of tickets) {
+      if (t.drawAt < minDrawAt) minDrawAt = t.drawAt;
+      if (t.drawAt > maxDrawAt) maxDrawAt = t.drawAt;
+    }
+
+    const [draws, gamesAll] = await Promise.all([
+      this.drawResults.findMany({ from: minDrawAt, to: maxDrawAt }),
+      this.games.findAll({ onlyActive: false }),
+    ]);
+    const drawByKey = new Map(
+      draws.map((d) => [`${d.gameId}|${d.drawAt.toISOString()}`, d]),
+    );
+    const gameById = new Map(gamesAll.map((g) => [g.id, g]));
+
+    const won = new Map<string, number>();
+    for (const t of tickets) {
+      const game = gameById.get(t.gameId) ?? null;
+      const key = `${t.gameId}|${t.drawAt.toISOString()}`;
+      const draw = drawByKey.get(key) ?? null;
+      const ev = this.evaluator.evaluateWith(t, game, draw);
+      if (ev.totalPrize > 0) {
+        won.set(t.sellerId, (won.get(t.sellerId) ?? 0) + ev.totalPrize);
+      }
+    }
+    return won;
   }
 }

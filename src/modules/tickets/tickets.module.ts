@@ -58,6 +58,6 @@ import { TimestampFolioGenerator } from './infrastructure/services/timestamp-fol
     EvaluateTicketById,
     MarkTicketPaid,
   ],
-  exports: [ListWinningTickets],
+  exports: [ListWinningTickets, TICKETS_REPOSITORY, TicketEvaluator],
 })
 export class TicketsModule {}

@@ -4,10 +4,24 @@ import { DataSource } from 'typeorm';
 
 import type { UseCase } from '../../../../shared/application/use-case';
 import {
+  DRAW_RESULTS_REPOSITORY,
+  type DrawResultsRepository,
+} from '../../../games/domain/repositories/draw-results.repository';
+import {
+  GAMES_REPOSITORY,
+  type GamesRepository,
+} from '../../../games/domain/repositories/games.repository';
+import {
   SALE_POINTS_REPOSITORY,
   type SalePointsRepository,
 } from '../../../sale-points/domain/repositories/sale-points.repository';
 import { PartnerScopeService } from '../../../sale-points/application/services/partner-scope.service';
+import { TicketEvaluator } from '../../../tickets/application/services/ticket-evaluator.service';
+import {
+  TICKETS_REPOSITORY,
+  type TicketsRepository,
+} from '../../../tickets/domain/repositories/tickets.repository';
+import { TicketStatus } from '../../../tickets/domain/value-objects/ticket-status';
 import {
   USERS_REPOSITORY,
   type UsersRepository,
@@ -50,7 +64,13 @@ export class GetMovementsBalance
     @Inject(SALE_POINTS_REPOSITORY)
     private readonly salePoints: SalePointsRepository,
     @Inject(USERS_REPOSITORY) private readonly users: UsersRepository,
+    @Inject(TICKETS_REPOSITORY)
+    private readonly tickets: TicketsRepository,
+    @Inject(GAMES_REPOSITORY) private readonly games: GamesRepository,
+    @Inject(DRAW_RESULTS_REPOSITORY)
+    private readonly drawResults: DrawResultsRepository,
     private readonly scope: PartnerScopeService,
+    private readonly evaluator: TicketEvaluator,
   ) {}
 
   async execute(
@@ -117,6 +137,17 @@ export class GetMovementsBalance
 
     if (rows.length === 0) return { items: [] };
 
+    // Compute wonPrize per sucursal — evaluamos todos los tickets del rango
+    // contra sus draw results (paid o no) usando el TicketEvaluator. La
+    // lógica de match (exacto/fácil/premio par) vive en el evaluator, así
+    // no la duplicamos en SQL.
+    const wonBySalePoint = await this.computeWonBySalePoint({
+      salePointId: input.salePointId,
+      salePointIds: partnerScope ?? undefined,
+      from: input.from,
+      to: input.to,
+    });
+
     // Bulk-resolve sucursal + partner names.
     const salePointIds = rows.map((r) => r.sale_point_id);
     const salePoints = await Promise.all(
@@ -143,10 +174,13 @@ export class GetMovementsBalance
       const sp = salePointById.get(r.sale_point_id);
       const billed = Number(r.billed);
       const paidPrize = Number(r.paid_prize);
+      const wonPrize = wonBySalePoint.get(r.sale_point_id) ?? 0;
       const deposits = Number(r.deposits);
       const withdrawals = Number(r.withdrawals);
       const expenses = Number(r.expenses);
-      const net = billed - paidPrize + deposits - withdrawals - expenses;
+      // Net usa `wonPrize` (deuda total con ganadores) para reflejar la
+      // ganancia/pérdida real independientemente de si ya se pagaron.
+      const net = billed - wonPrize + deposits - withdrawals - expenses;
       return {
         salePointId: r.sale_point_id,
         salePointName: sp?.name ?? '—',
@@ -156,6 +190,7 @@ export class GetMovementsBalance
           : null,
         billed,
         paidPrize,
+        wonPrize,
         deposits,
         withdrawals,
         expenses,
@@ -165,5 +200,67 @@ export class GetMovementsBalance
 
     items.sort((a, b) => b.net - a.net);
     return { items };
+  }
+
+  /**
+   * Evalúa todos los tickets válidos del rango contra sus draw results y
+   * devuelve `salePointId -> totalWonPrize`. Un ticket sin draw registrado
+   * (sorteo aún no ocurrido o resultado no cargado) contribuye 0 —
+   * `TicketEvaluator.evaluateWith` lo devuelve como pending.
+   *
+   * Batch strategy:
+   *   1. fetch tickets (con lines cargadas).
+   *   2. fetch all draws entre min(drawAt) y max(drawAt) — un solo query.
+   *   3. fetch todos los juegos (~15 filas, cache-friendly).
+   *   4. iterate y evaluate en TS.
+   */
+  private async computeWonBySalePoint(filters: {
+    salePointId?: string;
+    salePointIds?: string[];
+    from?: Date;
+    to?: Date;
+  }): Promise<Map<string, number>> {
+    const tickets = await this.tickets.findMany({
+      status: TicketStatus.VALID,
+      salePointId: filters.salePointId,
+      salePointIds: filters.salePointIds,
+      from: filters.from,
+      to: filters.to,
+      // Reporting query: no paginamos. En la práctica un reporte típico
+      // (día/semana/mes) es cientos-miles de tickets, no millones.
+      limit: 100_000,
+      offset: 0,
+    });
+    if (tickets.length === 0) return new Map();
+
+    // Rango de drawAts (independiente del range de created_at porque un
+    // ticket creado el lunes puede apuntar al sorteo del jueves).
+    let minDrawAt = tickets[0].drawAt;
+    let maxDrawAt = tickets[0].drawAt;
+    for (const t of tickets) {
+      if (t.drawAt < minDrawAt) minDrawAt = t.drawAt;
+      if (t.drawAt > maxDrawAt) maxDrawAt = t.drawAt;
+    }
+
+    const [draws, gamesAll] = await Promise.all([
+      this.drawResults.findMany({ from: minDrawAt, to: maxDrawAt }),
+      this.games.findAll({ onlyActive: false }),
+    ]);
+    const drawByKey = new Map(
+      draws.map((d) => [`${d.gameId}|${d.drawAt.toISOString()}`, d]),
+    );
+    const gameById = new Map(gamesAll.map((g) => [g.id, g]));
+
+    const won = new Map<string, number>();
+    for (const t of tickets) {
+      const game = gameById.get(t.gameId) ?? null;
+      const key = `${t.gameId}|${t.drawAt.toISOString()}`;
+      const draw = drawByKey.get(key) ?? null;
+      const ev = this.evaluator.evaluateWith(t, game, draw);
+      if (ev.totalPrize > 0) {
+        won.set(t.salePointId, (won.get(t.salePointId) ?? 0) + ev.totalPrize);
+      }
+    }
+    return won;
   }
 }
