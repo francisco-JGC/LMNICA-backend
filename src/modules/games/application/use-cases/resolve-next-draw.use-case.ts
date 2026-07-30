@@ -72,7 +72,15 @@ export class ResolveNextDraw
       for (const schedule of candidates) {
         const drawMinutes = schedule.toMinutes();
         const cutoffThreshold = drawMinutes - schedule.cutoffMinutes;
-        const passesCutoff = offset > 0 || nowMinutes < cutoffThreshold;
+        // `<=` (no `<`): granularidad minuto. Un vendedor que ve su reloj
+        // marcando 20:58 (con sorteo a las 21:00 y cutoff de 2 min) espera
+        // caer en ese sorteo — la comparación en minutos igualaba 1258 con
+        // 1258 y con `<` estricto saltaba al día siguiente. Con `<=`, todo
+        // el minuto del cutoff (20:58:00 a 20:58:59) sigue siendo válido y
+        // recién al empezar 20:59 se salta al próximo sorteo. Semántica:
+        // "cutoff N min" = "se puede vender durante el minuto en que faltan
+        // N min al sorteo; corte al empezar el minuto siguiente".
+        const passesCutoff = offset > 0 || nowMinutes <= cutoffThreshold;
         if (!passesCutoff) continue;
 
         const [h, m] = schedule.drawTime.split(':').map(Number);
