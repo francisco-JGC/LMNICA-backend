@@ -111,8 +111,6 @@ export class GetSellerReport
       ],
     );
 
-    if (rows.length === 0) return { items: [] };
-
     // wonPrize (paid o no) por vendedor — evaluamos los tickets contra
     // sus resultados. Ver `GetMovementsBalance.computeWonBySalePoint`.
     const wonBySeller = await this.computeWonBySeller({
@@ -123,35 +121,111 @@ export class GetSellerReport
       to: input.to,
     });
 
-    // Resolve seller info in one round trip to compute names and salaries.
-    const sellerIds = rows.map((r) => r.seller_id);
-    const sellers = await this.users.findByIds(sellerIds);
-    const sellerById = new Map(sellers.map((s) => [s.id, s]));
+    // Lista base de vendedores según los filtros — incluye a los que no
+    // vendieron nada en el rango, para que aparezcan en ceros en la UI.
+    // El SQL agregado devuelve solo los que sí vendieron, así que este
+    // fetch aparte es la fuente completa; hacemos merge abajo.
+    const sellers = await this.resolveSellerScope({
+      effectiveSellerId,
+      salePointId: input.salePointId,
+      salePointIds: partnerScope ?? undefined,
+    });
 
-    const items: SellerReportRow[] = rows.map((r) => {
-      const seller = sellerById.get(r.seller_id);
-      const billed = Number(r.billed);
-      const pct = seller?.paymentPercentage ?? null;
+    if (sellers.length === 0) return { items: [] };
+
+    const rowBySellerId = new Map(rows.map((r) => [r.seller_id, r]));
+
+    const items: SellerReportRow[] = sellers.map((seller) => {
+      const r = rowBySellerId.get(seller.id);
+      const billed = r ? Number(r.billed) : 0;
+      const pct = seller.paymentPercentage ?? null;
       const salary = pct !== null ? Math.round((billed * pct) / 100) : null;
       return {
-        sellerId: r.seller_id,
-        sellerName: seller?.name ?? '—',
-        ticketCount: Number(r.ticket_count),
-        voidedCount: Number(r.voided_count),
-        paidCount: Number(r.paid_count),
+        sellerId: seller.id,
+        sellerName: seller.name,
+        ticketCount: r ? Number(r.ticket_count) : 0,
+        voidedCount: r ? Number(r.voided_count) : 0,
+        paidCount: r ? Number(r.paid_count) : 0,
         billed,
-        paidPrize: Number(r.paid_prize),
-        wonPrize: wonBySeller.get(r.seller_id) ?? 0,
+        paidPrize: r ? Number(r.paid_prize) : 0,
+        wonPrize: wonBySeller.get(seller.id) ?? 0,
         paymentPercentage: pct,
         salary,
       };
     });
 
     // Sort by billed desc — highest earners first, matches how you read
-    // payroll during a Sunday close-out.
+    // payroll during a Sunday close-out. Los que están en 0 quedan al
+    // final naturalmente.
     items.sort((a, b) => b.billed - a.billed);
 
     return { items };
+  }
+
+  /**
+   * Lista de vendedores que deben aparecer en el reporte, incluyendo los
+   * que no vendieron nada en el rango. Aplica los mismos scopes que las
+   * queries de tickets (partner, sucursal, seller específico) para no
+   * mostrar vendedores fuera del alcance del requester.
+   */
+  private async resolveSellerScope(filters: {
+    effectiveSellerId?: string;
+    salePointId?: string;
+    salePointIds?: string[];
+  }) {
+    // Filtro de un vendedor puntual: fetch directo.
+    if (filters.effectiveSellerId) {
+      const one = await this.users.findById(filters.effectiveSellerId);
+      // Puede ser null si el ID no existe o si un partner intenta espiar
+      // un vendedor fuera de su scope — en ambos casos, sin filas.
+      if (!one) return [];
+      // Verificar que respete el sucursal filter.
+      if (
+        filters.salePointId &&
+        one.salePointId !== filters.salePointId
+      ) {
+        return [];
+      }
+      // Verificar partner scope.
+      if (
+        filters.salePointIds &&
+        (one.salePointId === null ||
+          !filters.salePointIds.includes(one.salePointId))
+      ) {
+        return [];
+      }
+      return [one];
+    }
+
+    // Filtro por sucursal específica: sellers de esa sucursal.
+    if (filters.salePointId) {
+      // El partner scope se aplica implícitamente porque el `salePointId`
+      // ya viene validado en el caller (falla el ownership check antes).
+      return this.users.findMany({
+        role: UserRole.SELLER,
+        salePointIds: [filters.salePointId],
+        limit: 1000,
+        offset: 0,
+      });
+    }
+
+    // Filtro por partner scope: sellers de sus sucursales.
+    if (filters.salePointIds) {
+      if (filters.salePointIds.length === 0) return [];
+      return this.users.findMany({
+        role: UserRole.SELLER,
+        salePointIds: filters.salePointIds,
+        limit: 1000,
+        offset: 0,
+      });
+    }
+
+    // Admin sin filtros → todos los sellers.
+    return this.users.findMany({
+      role: UserRole.SELLER,
+      limit: 1000,
+      offset: 0,
+    });
   }
 
   /**
