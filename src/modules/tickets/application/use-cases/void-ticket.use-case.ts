@@ -17,8 +17,6 @@ import {
 } from '../../domain/repositories/tickets.repository';
 import { toTicketOutput, type TicketOutput } from '../dtos/ticket.output';
 
-const SELLER_VOID_WINDOW_MINUTES = 5;
-
 export interface VoidTicketInput {
   id: string;
   reason: string;
@@ -60,12 +58,6 @@ export class VoidTicket implements UseCase<VoidTicketInput, TicketOutput> {
     if (input.requesterRole === UserRole.SELLER) {
       if (!ticket.isOwnedBy(input.requesterId)) {
         throw new NotFoundError('Ticket', input.id);
-      }
-      const elapsed = ticket.minutesSinceCreation(now);
-      if (elapsed > SELLER_VOID_WINDOW_MINUTES) {
-        throw new ValidationError(
-          `Sellers can only void tickets within ${SELLER_VOID_WINDOW_MINUTES} minutes`,
-        );
       }
 
       // Defensa D: el sorteo que era el "próximo natural" al momento de
