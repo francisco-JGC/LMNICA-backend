@@ -42,7 +42,7 @@ export class DeleteSaleLimit
         input.requesterId,
         input.requesterRole,
       );
-      if (!(owned ?? []).includes(limit.salePointId)) {
+      if (!owned.includes(limit.salePointId)) {
         throw new ForbiddenException(
           'No puedes eliminar un límite fuera de tus sucursales',
         );

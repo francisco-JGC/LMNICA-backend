@@ -31,26 +31,45 @@ export class TypeOrmSalePointsRepository implements SalePointsRepository {
     return found ? SalePointMapper.toDomain(found) : null;
   }
 
-  async findAll(): Promise<SalePoint[]> {
-    const rows = await this.repo.find({ order: { createdAt: 'DESC' } });
-    return rows.map((row) => SalePointMapper.toDomain(row));
-  }
-
-  async findByPartner(partnerId: string): Promise<SalePoint[]> {
+  async findAll(options?: {
+    includeInactive?: boolean;
+  }): Promise<SalePoint[]> {
+    const where = options?.includeInactive ? {} : { isActive: true };
     const rows = await this.repo.find({
-      where: { ownerPartnerId: partnerId },
+      where,
       order: { createdAt: 'DESC' },
     });
     return rows.map((row) => SalePointMapper.toDomain(row));
   }
 
-  async findVisibleSalePointIdsForPartner(partnerId: string): Promise<string[]> {
+  async findByPartner(
+    partnerId: string,
+    options?: { includeInactive?: boolean },
+  ): Promise<SalePoint[]> {
+    const where = options?.includeInactive
+      ? { ownerPartnerId: partnerId }
+      : { ownerPartnerId: partnerId, isActive: true };
+    const rows = await this.repo.find({
+      where,
+      order: { createdAt: 'DESC' },
+    });
+    return rows.map((row) => SalePointMapper.toDomain(row));
+  }
+
+  async findVisibleSalePointIdsForPartner(
+    partnerId: string,
+    options?: { includeInactive?: boolean },
+  ): Promise<string[]> {
     // Owned (encargado) ∪ assigned. Dedup via Set — a partner can be both
     // encargado and (redundantly) in the assigned list without inflating
-    // the result.
-    const [owned, assigned] = await Promise.all([
+    // the result. Filtramos inactivas por defecto para que el partner no
+    // vea (ni agregue) datos de sucursales que fueron desactivadas.
+    const includeInactive = options?.includeInactive ?? false;
+    const [owned, assignedRows] = await Promise.all([
       this.repo.find({
-        where: { ownerPartnerId: partnerId },
+        where: includeInactive
+          ? { ownerPartnerId: partnerId }
+          : { ownerPartnerId: partnerId, isActive: true },
         select: { id: true },
       }),
       this.assignments.find({
@@ -58,10 +77,37 @@ export class TypeOrmSalePointsRepository implements SalePointsRepository {
         select: { salePointId: true },
       }),
     ]);
+
+    const assignedIds = assignedRows.map((r) => r.salePointId);
+    // La tabla `sale_point_assigned_partners` no tiene filtro por `is_active`,
+    // así que confirmamos actividad de los assigned con un fetch aparte
+    // (skip si no hay assignments para evitar el `IN ()` inválido).
+    const assignedActive =
+      includeInactive || assignedIds.length === 0
+        ? new Set(assignedIds)
+        : new Set(
+            (
+              await this.repo.find({
+                where: { id: In(assignedIds), isActive: true },
+                select: { id: true },
+              })
+            ).map((r) => r.id),
+          );
+
     const ids = new Set<string>();
     for (const row of owned) ids.add(row.id);
-    for (const row of assigned) ids.add(row.salePointId);
+    for (const id of assignedIds) {
+      if (assignedActive.has(id)) ids.add(id);
+    }
     return Array.from(ids);
+  }
+
+  async findAllActiveIds(): Promise<string[]> {
+    const rows = await this.repo.find({
+      where: { isActive: true },
+      select: { id: true },
+    });
+    return rows.map((r) => r.id);
   }
 
   async getAssignedPartnerIds(salePointId: string): Promise<string[]> {

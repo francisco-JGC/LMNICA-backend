@@ -39,7 +39,7 @@ export class CreateUser implements UseCase<CreateUserInput, UserOutput> {
         input.requesterId,
         input.requesterRole,
       );
-      if (owned === null || !owned.includes(input.salePointId)) {
+      if (!owned.includes(input.salePointId)) {
         throw new ForbiddenException(
           'Esa sucursal no te pertenece',
         );

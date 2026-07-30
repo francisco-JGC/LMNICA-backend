@@ -63,9 +63,7 @@ export class GetBranchTotals
       input.requesterId,
       input.requesterRole,
     );
-    if (partnerScope !== null && partnerScope.length === 0) {
-      return { items: [] };
-    }
+    if (partnerScope.length === 0) return { items: [] };
 
     const rows = await this.dataSource.query<RawRow[]>(
       `
@@ -80,7 +78,7 @@ export class GetBranchTotals
       WHERE ($1::uuid IS NULL OR t.game_id = $1::uuid)
         AND ($2::timestamptz IS NULL OR t.created_at >= $2::timestamptz)
         AND ($3::timestamptz IS NULL OR t.created_at <  $3::timestamptz)
-        AND ($4::uuid[] IS NULL OR t.sale_point_id = ANY($4::uuid[]))
+        AND t.sale_point_id = ANY($4::uuid[])
       GROUP BY t.sale_point_id
       `,
       [

@@ -34,7 +34,10 @@ export class ListSalePointsForUser
     const user = await this.users.findById(userId);
     if (!user || !user.salePointId) return [];
     const salePoint = await this.salePoints.findById(user.salePointId);
-    if (!salePoint) return [];
+    // Si la sucursal fue desactivada, no debe aparecer para el vendedor
+    // (no puede seguir vendiendo desde una sucursal cerrada). El cliente
+    // móvil interpreta lista vacía como "sin sucursal asignada".
+    if (!salePoint || !salePoint.isActive) return [];
     return [toSalePointOutput(salePoint)];
   }
 }

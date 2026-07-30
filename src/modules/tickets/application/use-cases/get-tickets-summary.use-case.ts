@@ -63,10 +63,8 @@ export class GetTicketsSummary
       input.requesterId,
       input.requesterRole,
     );
-    // Partner owns nothing → nothing to aggregate.
-    if (partnerScope !== null && partnerScope.length === 0) {
-      return EMPTY_RESULT;
-    }
+    // Sin sucursales visibles → nada que agregar.
+    if (partnerScope.length === 0) return EMPTY_RESULT;
 
     const rows = await this.dataSource.query<
       Array<{
@@ -90,7 +88,7 @@ export class GetTicketsSummary
         AND ($3::uuid IS NULL OR t.game_id       = $3::uuid)
         AND ($4::timestamptz IS NULL OR t.created_at >= $4::timestamptz)
         AND ($5::timestamptz IS NULL OR t.created_at <  $5::timestamptz)
-        AND ($6::uuid[] IS NULL OR t.sale_point_id = ANY($6::uuid[]))
+        AND t.sale_point_id = ANY($6::uuid[])
       `,
       [
         effectiveSellerId ?? null,

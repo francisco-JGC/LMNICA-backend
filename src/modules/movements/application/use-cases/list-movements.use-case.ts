@@ -48,10 +48,13 @@ export class ListMovements
       input.requesterId,
       input.requesterRole,
     );
+    if (accessible.length === 0) {
+      return { items: [], page: input.page, limit: input.limit, total: 0 };
+    }
 
     const filters = {
       salePointId: input.salePointId,
-      salePointIds: accessible ?? undefined,
+      salePointIds: accessible,
       type: input.type,
       from: input.from,
       to: input.to,

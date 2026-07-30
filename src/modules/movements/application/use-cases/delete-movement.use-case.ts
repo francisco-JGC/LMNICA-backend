@@ -38,7 +38,7 @@ export class DeleteMovement
         input.requesterId,
         input.requesterRole,
       );
-      if (!(owned ?? []).includes(movement.salePointId)) {
+      if (!owned.includes(movement.salePointId)) {
         throw new ForbiddenException(
           'No puedes eliminar un movimiento fuera de tus sucursales',
         );

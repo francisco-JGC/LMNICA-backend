@@ -51,17 +51,21 @@ export class ListTickets implements UseCase<ListTicketsInput, ListTicketsOutput>
         ? input.requesterId
         : input.sellerId;
 
-    // Partner scoping: admin sees all, partner is restricted to their
-    // sucursales, seller-scoping already happened via sellerId above.
+    // Partner scoping: admin sees todas las sucursales activas, partner
+    // solo las suyas, seller ya se filtró por sellerId arriba. En cualquier
+    // caso `accessibleSalePointIds` viene con las sucursales activas.
     const accessibleSalePointIds = await this.scope.getAccessibleSalePointIds(
       input.requesterId,
       input.requesterRole,
     );
+    if (accessibleSalePointIds.length === 0) {
+      return { items: [], page: input.page, limit: input.limit, total: 0 };
+    }
 
     const filters = {
       sellerId: effectiveSellerId,
       salePointId: input.salePointId,
-      salePointIds: accessibleSalePointIds ?? undefined,
+      salePointIds: accessibleSalePointIds,
       gameId: input.gameId,
       status: input.status,
       from: input.from,

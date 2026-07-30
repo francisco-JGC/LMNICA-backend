@@ -65,12 +65,12 @@ export class ListWinningTickets
       input.requesterId,
       input.requesterRole,
     );
-    if (partnerScope !== null && partnerScope.length === 0) return [];
+    if (partnerScope.length === 0) return [];
 
     const items = await this.tickets.findMany({
       sellerId: effectiveSellerId,
       salePointId: input.salePointId,
-      salePointIds: partnerScope ?? undefined,
+      salePointIds: partnerScope,
       gameId: input.gameId,
       status: TicketStatus.VALID,
       from: input.from,

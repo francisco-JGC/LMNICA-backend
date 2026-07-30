@@ -51,9 +51,7 @@ export class GetBillingByGame
       input.requesterId,
       input.requesterRole,
     );
-    if (partnerScope !== null && partnerScope.length === 0) {
-      return { items: [] };
-    }
+    if (partnerScope.length === 0) return { items: [] };
 
     const rows = await this.dataSource.query<RawRow[]>(
       `
@@ -69,7 +67,7 @@ export class GetBillingByGame
         AND ($2::uuid IS NULL OR t.seller_id     = $2::uuid)
         AND ($3::timestamptz IS NULL OR t.created_at >= $3::timestamptz)
         AND ($4::timestamptz IS NULL OR t.created_at <  $4::timestamptz)
-        AND ($5::uuid[] IS NULL OR t.sale_point_id = ANY($5::uuid[]))
+        AND t.sale_point_id = ANY($5::uuid[])
       GROUP BY t.game_id
       `,
       [

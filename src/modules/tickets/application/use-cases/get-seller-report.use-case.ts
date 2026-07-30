@@ -81,9 +81,7 @@ export class GetSellerReport
       input.requesterId,
       input.requesterRole,
     );
-    if (partnerScope !== null && partnerScope.length === 0) {
-      return { items: [] };
-    }
+    if (partnerScope.length === 0) return { items: [] };
 
     const rows = await this.dataSource.query<RawRow[]>(
       `
@@ -99,7 +97,7 @@ export class GetSellerReport
         AND ($2::uuid IS NULL OR t.sale_point_id = $2::uuid)
         AND ($3::timestamptz IS NULL OR t.created_at >= $3::timestamptz)
         AND ($4::timestamptz IS NULL OR t.created_at <  $4::timestamptz)
-        AND ($5::uuid[] IS NULL OR t.sale_point_id = ANY($5::uuid[]))
+        AND t.sale_point_id = ANY($5::uuid[])
       GROUP BY t.seller_id
       `,
       [
@@ -116,7 +114,7 @@ export class GetSellerReport
     const wonBySeller = await this.computeWonBySeller({
       sellerId: effectiveSellerId,
       salePointId: input.salePointId,
-      salePointIds: partnerScope ?? undefined,
+      salePointIds: partnerScope,
       from: input.from,
       to: input.to,
     });
@@ -128,7 +126,7 @@ export class GetSellerReport
     const sellers = await this.resolveSellerScope({
       effectiveSellerId,
       salePointId: input.salePointId,
-      salePointIds: partnerScope ?? undefined,
+      salePointIds: partnerScope,
     });
 
     if (sellers.length === 0) return { items: [] };
@@ -171,7 +169,7 @@ export class GetSellerReport
   private async resolveSellerScope(filters: {
     effectiveSellerId?: string;
     salePointId?: string;
-    salePointIds?: string[];
+    salePointIds: string[];
   }) {
     // Filtro de un vendedor puntual: fetch directo.
     if (filters.effectiveSellerId) {
@@ -186,21 +184,21 @@ export class GetSellerReport
       ) {
         return [];
       }
-      // Verificar partner scope.
+      // Verificar scope (activas + visibles). Un seller sin sucursal, o
+      // cuyo sucursal esté fuera del scope o esté inactiva, no aparece.
       if (
-        filters.salePointIds &&
-        (one.salePointId === null ||
-          !filters.salePointIds.includes(one.salePointId))
+        one.salePointId === null ||
+        !filters.salePointIds.includes(one.salePointId)
       ) {
         return [];
       }
       return [one];
     }
 
-    // Filtro por sucursal específica: sellers de esa sucursal.
+    // Filtro por sucursal específica: sellers de esa sucursal — siempre
+    // que la sucursal esté en el scope (activa + visible).
     if (filters.salePointId) {
-      // El partner scope se aplica implícitamente porque el `salePointId`
-      // ya viene validado en el caller (falla el ownership check antes).
+      if (!filters.salePointIds.includes(filters.salePointId)) return [];
       return this.users.findMany({
         role: UserRole.SELLER,
         salePointIds: [filters.salePointId],
@@ -209,20 +207,11 @@ export class GetSellerReport
       });
     }
 
-    // Filtro por partner scope: sellers de sus sucursales.
-    if (filters.salePointIds) {
-      if (filters.salePointIds.length === 0) return [];
-      return this.users.findMany({
-        role: UserRole.SELLER,
-        salePointIds: filters.salePointIds,
-        limit: 1000,
-        offset: 0,
-      });
-    }
-
-    // Admin sin filtros → todos los sellers.
+    // Sin filtro puntual: sellers de todas las sucursales del scope.
+    if (filters.salePointIds.length === 0) return [];
     return this.users.findMany({
       role: UserRole.SELLER,
+      salePointIds: filters.salePointIds,
       limit: 1000,
       offset: 0,
     });

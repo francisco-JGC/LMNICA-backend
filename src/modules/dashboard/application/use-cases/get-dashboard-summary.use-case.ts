@@ -33,8 +33,8 @@ export interface DashboardSummaryInput {
   requesterRole: UserRole;
 }
 
-/** Scope of sale_points visible to the requester. `null` = no restriction. */
-type SalePointScope = string[] | null;
+/** Scope of ACTIVE sale_points visible to the requester (never null). */
+type SalePointScope = string[];
 
 const EMPTY_SUMMARY: DashboardSummaryOutput = {
   billedToday: 0,
@@ -80,8 +80,8 @@ export class GetDashboardSummary
       input.requesterId,
       input.requesterRole,
     );
-    // Partner with zero sucursales → everything is zero, no need to query.
-    if (scope !== null && scope.length === 0) return EMPTY_SUMMARY;
+    // Sin sucursales visibles → todo en cero, no queries.
+    if (scope.length === 0) return EMPTY_SUMMARY;
 
     const [
       kpis,
@@ -181,10 +181,10 @@ export class GetDashboardSummary
 
         (
           SELECT COUNT(*) FROM users u
-          WHERE $2::uuid[] IS NULL OR u.sale_point_id = ANY($2::uuid[])
+          WHERE u.sale_point_id = ANY($2::uuid[])
         )::bigint AS total_users
       FROM tickets t
-      WHERE $2::uuid[] IS NULL OR t.sale_point_id = ANY($2::uuid[])
+      WHERE t.sale_point_id = ANY($2::uuid[])
       `,
       [BUSINESS_TZ, scope],
     );
@@ -232,13 +232,13 @@ export class GetDashboardSummary
           WHEN t.status = 'valid'
            AND (t.created_at AT TIME ZONE $1)::date >= m.month_start
            AND (t.created_at AT TIME ZONE $1)::date <  (m.month_start + INTERVAL '1 month')::date
-           AND ($3::uuid[] IS NULL OR t.sale_point_id = ANY($3::uuid[]))
+           AND t.sale_point_id = ANY($3::uuid[])
           THEN t.total ELSE 0 END), 0)::bigint AS billed,
         COALESCE(SUM(CASE
           WHEN t.paid_at IS NOT NULL
            AND (t.paid_at AT TIME ZONE $1)::date >= m.month_start
            AND (t.paid_at AT TIME ZONE $1)::date <  (m.month_start + INTERVAL '1 month')::date
-           AND ($3::uuid[] IS NULL OR t.sale_point_id = ANY($3::uuid[]))
+           AND t.sale_point_id = ANY($3::uuid[])
           THEN t.paid_prize ELSE 0 END), 0)::bigint AS paid
       FROM months m
       LEFT JOIN tickets t ON true
@@ -275,12 +275,12 @@ export class GetDashboardSummary
         COALESCE(SUM(CASE
           WHEN t.status = 'valid'
            AND (t.created_at AT TIME ZONE $1)::date >= (now() AT TIME ZONE $1)::date - 6
-           AND ($2::uuid[] IS NULL OR t.sale_point_id = ANY($2::uuid[]))
+           AND t.sale_point_id = ANY($2::uuid[])
           THEN t.total ELSE 0 END), 0)::bigint AS billed,
         COALESCE(SUM(CASE
           WHEN t.paid_at IS NOT NULL
            AND (t.paid_at AT TIME ZONE $1)::date >= (now() AT TIME ZONE $1)::date - 6
-           AND ($2::uuid[] IS NULL OR t.sale_point_id = ANY($2::uuid[]))
+           AND t.sale_point_id = ANY($2::uuid[])
           THEN t.paid_prize ELSE 0 END), 0)::bigint AS paid
       FROM games g
       LEFT JOIN tickets t ON t.game_id = g.id
@@ -456,9 +456,9 @@ export class GetDashboardSummary
         ON t.seller_id = u.id
        AND t.status = 'valid'
        AND (t.created_at AT TIME ZONE $1)::date = (now() AT TIME ZONE $1)::date
-       AND ($2::uuid[] IS NULL OR t.sale_point_id = ANY($2::uuid[]))
+       AND t.sale_point_id = ANY($2::uuid[])
       WHERE u.role = 'seller'
-        AND ($2::uuid[] IS NULL OR u.sale_point_id = ANY($2::uuid[]))
+        AND u.sale_point_id = ANY($2::uuid[])
       GROUP BY u.id, u.name
       HAVING COALESCE(SUM(t.total), 0) > 0
       ORDER BY amount DESC
@@ -491,7 +491,7 @@ export class GetDashboardSummary
         ON t.sale_point_id = sp.id
        AND t.status = 'valid'
        AND (t.created_at AT TIME ZONE $1)::date = (now() AT TIME ZONE $1)::date
-      WHERE $2::uuid[] IS NULL OR sp.id = ANY($2::uuid[])
+      WHERE sp.id = ANY($2::uuid[])
       GROUP BY sp.id, sp.name
       HAVING COALESCE(SUM(t.total), 0) > 0
       ORDER BY amount DESC

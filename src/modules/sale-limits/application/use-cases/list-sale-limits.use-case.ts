@@ -34,8 +34,9 @@ export class ListSaleLimits
       input.requesterId,
       input.requesterRole,
     );
+    if (accessible.length === 0) return [];
     const rows = await this.limits.findMany({
-      salePointIds: accessible ?? undefined,
+      salePointIds: accessible,
     });
     return rows.map(toSaleLimitOutput);
   }

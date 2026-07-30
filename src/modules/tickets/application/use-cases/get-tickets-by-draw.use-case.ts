@@ -52,7 +52,7 @@ export class GetTicketsByDraw
       input.requesterId,
       input.requesterRole,
     );
-    if (partnerScope !== null && partnerScope.length === 0) return [];
+    if (partnerScope.length === 0) return [];
 
     const rows = await this.dataSource.query<
       Array<{
@@ -84,7 +84,7 @@ export class GetTicketsByDraw
         AND ($3::uuid IS NULL OR t.game_id       = $3::uuid)
         AND ($4::timestamptz IS NULL OR t.created_at >= $4::timestamptz)
         AND ($5::timestamptz IS NULL OR t.created_at <  $5::timestamptz)
-        AND ($6::uuid[] IS NULL OR t.sale_point_id = ANY($6::uuid[]))
+        AND t.sale_point_id = ANY($6::uuid[])
       GROUP BY t.game_id, t.draw_at, dr.winning_number
       ORDER BY t.draw_at DESC
       `,

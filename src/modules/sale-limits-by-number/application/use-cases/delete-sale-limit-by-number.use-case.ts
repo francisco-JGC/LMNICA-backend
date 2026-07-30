@@ -40,7 +40,7 @@ export class DeleteSaleLimitByNumber
         input.requesterId,
         input.requesterRole,
       );
-      if (!(owned ?? []).includes(existing.salePointId)) {
+      if (!owned.includes(existing.salePointId)) {
         throw new ForbiddenException('Esa sucursal no te pertenece');
       }
     }

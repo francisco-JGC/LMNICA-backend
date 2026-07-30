@@ -12,13 +12,17 @@ import {
  * so the partner-vs-admin isolation stays in one place.
  *
  * Contract:
- * - `null` → **no restriction** (admin sees everything, including sucursales
- *   with `owner_partner_id IS NULL`).
- * - `string[]` → restrict to exactly this set of `sale_points.id` values.
- *   An empty array is meaningful: the partner owns nothing and their
- *   result set must be empty (do NOT convert `[]` → "no filter").
+ * - Devuelve **siempre** un array de IDs de sucursales activas.
+ * - Admin → todas las sucursales activas.
+ * - Partner → sucursales activas que le pertenecen (encargado) o le
+ *   están asignadas (socios asignados).
+ * - Seller → todas las sucursales activas (los use cases filtran por
+ *   `sellerId` upstream — el scope acá es solo para excluir inactivas).
+ *
+ * Un array vacío significa "el requester no tiene alcance a ninguna
+ * sucursal" y los use cases deben devolver resultado vacío.
  */
-export type AccessibleSalePointScope = string[] | null;
+export type AccessibleSalePointScope = string[];
 
 @Injectable()
 export class PartnerScopeService {
@@ -31,16 +35,16 @@ export class PartnerScopeService {
     requesterId: string,
     role: UserRole,
   ): Promise<AccessibleSalePointScope> {
-    if (role === UserRole.ADMIN) return null;
     if (role === UserRole.PARTNER) {
       // Visibility = encargado (owner_partner_id) ∪ assigned partners.
       // Assigned partners get read-only access to reports/dashboards for
-      // sucursales they're not the encargado of.
+      // sucursales they're not the encargado of. Solo se devuelven IDs
+      // de sucursales activas.
       return this.salePoints.findVisibleSalePointIdsForPartner(requesterId);
     }
-    // Sellers are scoped upstream by their own sellerId — no additional
-    // sale-point restriction needed here. Endpoints that shouldn't be
-    // reachable by sellers must gate with @Roles, not with this service.
-    return null;
+    // Admin y seller ven todas las activas. El seller además se filtra por
+    // `sellerId` upstream en cada use case — este scope solo excluye
+    // sucursales desactivadas para que no aparezcan en agregados/dropdowns.
+    return this.salePoints.findAllActiveIds();
   }
 }

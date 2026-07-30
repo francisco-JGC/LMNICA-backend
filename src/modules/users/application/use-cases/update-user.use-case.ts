@@ -49,7 +49,7 @@ export class UpdateUser implements UseCase<UpdateUserInput, UserOutput> {
           input.requesterId,
           input.requesterRole,
         );
-        if (!(owned ?? []).includes(input.salePointId)) {
+        if (!owned.includes(input.salePointId)) {
           throw new ForbiddenException('Esa sucursal no te pertenece');
         }
       }

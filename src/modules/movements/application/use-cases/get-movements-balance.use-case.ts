@@ -82,9 +82,7 @@ export class GetMovementsBalance
       input.requesterId,
       input.requesterRole,
     );
-    if (partnerScope !== null && partnerScope.length === 0) {
-      return { items: [] };
-    }
+    if (partnerScope.length === 0) return { items: [] };
 
     // Pull the six numeric buckets in one query. A UNION ALL is used so
     // sucursales without tickets can still show up because they have
@@ -101,7 +99,7 @@ export class GetMovementsBalance
           WHERE ($1::uuid IS NULL OR t.sale_point_id = $1::uuid)
             AND ($2::timestamptz IS NULL OR t.created_at >= $2::timestamptz)
             AND ($3::timestamptz IS NULL OR t.created_at <  $3::timestamptz)
-            AND ($4::uuid[] IS NULL OR t.sale_point_id = ANY($4::uuid[]))
+            AND t.sale_point_id = ANY($4::uuid[])
           GROUP BY t.sale_point_id
         ),
         movement_flow AS (
@@ -114,7 +112,7 @@ export class GetMovementsBalance
           WHERE ($1::uuid IS NULL OR m.sale_point_id = $1::uuid)
             AND ($2::timestamptz IS NULL OR m.occurred_at >= $2::timestamptz)
             AND ($3::timestamptz IS NULL OR m.occurred_at <  $3::timestamptz)
-            AND ($4::uuid[] IS NULL OR m.sale_point_id = ANY($4::uuid[]))
+            AND m.sale_point_id = ANY($4::uuid[])
           GROUP BY m.sale_point_id
         )
       SELECT
@@ -143,7 +141,7 @@ export class GetMovementsBalance
     // no la duplicamos en SQL.
     const wonBySalePoint = await this.computeWonBySalePoint({
       salePointId: input.salePointId,
-      salePointIds: partnerScope ?? undefined,
+      salePointIds: partnerScope,
       from: input.from,
       to: input.to,
     });

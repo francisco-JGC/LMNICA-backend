@@ -12,13 +12,22 @@ import { toSalePointOutput, type SalePointOutput } from '../dtos/sale-point.outp
 export interface ListAllSalePointsInput {
   requesterId: string;
   requesterRole: UserRole;
+  /**
+   * Solo tiene efecto para admin. Cuando es `true`, incluye sucursales
+   * inactivas en la respuesta — se usa exclusivamente en la página de
+   * administración de sucursales para permitir reactivarlas. Por defecto
+   * (o para partners) las inactivas quedan siempre fuera.
+   */
+  includeInactive?: boolean;
 }
 
 /**
- * Admin → every sucursal.
- * Partner → sucursales they own (encargado) plus those where they are in the
- *   assigned-partners list (read-only visibility).
- * (Sellers use `/sale-points/mine`, this endpoint is web-only.)
+ * Admin → toda sucursal (activas por defecto; inactivas solo si
+ *   `includeInactive=true`).
+ * Partner → sucursales ACTIVAS que le pertenecen (encargado) o le están
+ *   asignadas. Las inactivas nunca aparecen para partners aunque las
+ *   hayan sido encargados antes.
+ * (Sellers usan `/sale-points/mine`; este endpoint es solo web.)
  */
 @Injectable()
 export class ListAllSalePoints
@@ -43,16 +52,19 @@ export class ListAllSalePoints
   private async resolveVisible(
     input: ListAllSalePointsInput,
   ): Promise<SalePoint[]> {
+    const includeInactive =
+      input.requesterRole === UserRole.ADMIN &&
+      input.includeInactive === true;
+
     if (input.requesterRole !== UserRole.PARTNER) {
-      return this.salePoints.findAll();
+      return this.salePoints.findAll({ includeInactive });
     }
-    const visibleIds = await this.salePoints.findVisibleSalePointIdsForPartner(
-      input.requesterId,
-    );
+    // Partners: nunca ven inactivas — el repo ya filtra por defecto.
+    const visibleIds =
+      await this.salePoints.findVisibleSalePointIdsForPartner(
+        input.requesterId,
+      );
     if (visibleIds.length === 0) return [];
-    // Preserve newest-first order via findAll then in-memory filter — the
-    // sucursal count is small (dozens, not thousands) so this is fine and
-    // keeps the ordering consistent with the admin view.
     const all = await this.salePoints.findAll();
     const idSet = new Set(visibleIds);
     return all.filter((sp) => idSet.has(sp.id));

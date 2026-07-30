@@ -7,6 +7,7 @@ import {
   Patch,
   Post,
   Put,
+  Query,
 } from '@nestjs/common';
 
 import { CurrentUser } from '../../../../auth/infrastructure/http/decorators/current-user.decorator';
@@ -44,10 +45,15 @@ export class SalePointsController {
 
   @Get()
   @Roles(UserRole.ADMIN, UserRole.PARTNER)
-  findAll(@CurrentUser() user: RequestUser): Promise<SalePointOutput[]> {
+  findAll(
+    @CurrentUser() user: RequestUser,
+    @Query('includeInactive') includeInactive?: string,
+  ): Promise<SalePointOutput[]> {
     return this.listAllSalePoints.execute({
       requesterId: user.id,
       requesterRole: user.role,
+      // Solo se respeta cuando el requester es admin (ver use case).
+      includeInactive: includeInactive === 'true',
     });
   }
 

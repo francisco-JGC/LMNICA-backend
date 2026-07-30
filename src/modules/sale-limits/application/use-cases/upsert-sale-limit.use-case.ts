@@ -72,7 +72,7 @@ export class UpsertSaleLimit
         input.requesterId,
         input.requesterRole,
       );
-      if (!(owned ?? []).includes(input.salePointId)) {
+      if (!owned.includes(input.salePointId)) {
         throw new ForbiddenException('Esa sucursal no te pertenece');
       }
     }
