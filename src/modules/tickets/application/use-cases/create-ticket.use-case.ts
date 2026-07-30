@@ -30,6 +30,10 @@ import {
   type SaleLimitsRepository,
 } from '../../../sale-limits/domain/repositories/sale-limits.repository';
 import {
+  SALE_LIMITS_BY_NUMBER_REPOSITORY,
+  type SaleLimitsByNumberRepository,
+} from '../../../sale-limits-by-number/domain/repositories/sale-limits-by-number.repository';
+import {
   SALE_POINTS_REPOSITORY,
   type SalePointsRepository,
 } from '../../../sale-points/domain/repositories/sale-points.repository';
@@ -74,6 +78,8 @@ export class CreateTicket implements UseCase<CreateTicketApplicationInput, Ticke
     private readonly schedules: DrawSchedulesRepository,
     @Inject(SALE_LIMITS_REPOSITORY)
     private readonly saleLimits: SaleLimitsRepository,
+    @Inject(SALE_LIMITS_BY_NUMBER_REPOSITORY)
+    private readonly saleLimitsByNumber: SaleLimitsByNumberRepository,
     @Inject(FEATURE_FLAGS_REPOSITORY)
     private readonly featureFlags: FeatureFlagsRepository,
     @Inject(FOLIO_GENERATOR) private readonly folio: FolioGenerator,
@@ -291,11 +297,16 @@ export class CreateTicket implements UseCase<CreateTicketApplicationInput, Ticke
 
   /**
    * Reject the ticket if any of its lines would push a `label`'s cumulative
-   * bet past the configured cap for `(game, sale_point, drawAt)`. The cap
-   * is per number per draw and resets automatically when `drawAt` changes.
+   * bet past the configured cap for `(game, sale_point, drawAt)`.
    *
-   * No configured limit → no check. Voided tickets never count (deleting a
-   * ticket frees up the number for that draw).
+   * Prioridad de topes:
+   *   1. Si existe un tope específico para `(sp, game, label)` en
+   *      `sale_limits_by_number`, usa ese valor.
+   *   2. Si no, cae al tope general por `(sp, game)` en `sale_limits`.
+   *   3. Si ninguno existe para ese label, no hay tope y pasa libre.
+   *
+   * El cap es por número por sorteo y se resetea automáticamente cuando
+   * cambia el `draw_at`. Voided tickets nunca cuentan (anular libera).
    */
   private async enforceSaleLimit(
     gameId: string,
@@ -303,11 +314,13 @@ export class CreateTicket implements UseCase<CreateTicketApplicationInput, Ticke
     drawAt: Date,
     lines: TicketLine[],
   ): Promise<void> {
-    const limit = await this.saleLimits.findByGameAndSalePoint(
-      gameId,
-      salePointId,
-    );
-    if (!limit) return;
+    const [generalLimit, perNumberMap] = await Promise.all([
+      this.saleLimits.findByGameAndSalePoint(gameId, salePointId),
+      this.saleLimitsByNumber.mapForGame(salePointId, gameId),
+    ]);
+
+    // Sin tope general ni overrides → nada que validar.
+    if (!generalLimit && perNumberMap.size === 0) return;
 
     // Compound this ticket's own repeated labels into a single request.
     const requestedByLabel = new Map<string, number>();
@@ -339,11 +352,17 @@ export class CreateTicket implements UseCase<CreateTicketApplicationInput, Ticke
     const soldByLabel = new Map(rows.map((r) => [r.label, Number(r.sold)]));
 
     for (const [label, requested] of requestedByLabel) {
+      // Resuelve tope efectivo para este label. `null` significa "sin tope".
+      const specific = perNumberMap.get(label);
+      const effectiveLimit =
+        specific !== undefined ? specific : generalLimit?.amount ?? null;
+      if (effectiveLimit === null) continue;
+
       const sold = soldByLabel.get(label) ?? 0;
-      if (sold + requested > limit.amount) {
-        const available = Math.max(0, limit.amount - sold);
+      if (sold + requested > effectiveLimit) {
+        const available = Math.max(0, effectiveLimit - sold);
         throw new ValidationError(
-          `El número "${label}" alcanzó el límite de C$${limit.amount} para este sorteo. Disponible: C$${available}.`,
+          `El número "${label}" alcanzó el límite de C$${effectiveLimit} para este sorteo. Disponible: C$${available}.`,
         );
       }
     }

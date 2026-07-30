@@ -4,6 +4,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { FeatureFlagsModule } from '../feature-flags/feature-flags.module';
 import { GamesModule } from '../games/games.module';
 import { SaleLimitsModule } from '../sale-limits/sale-limits.module';
+import { SaleLimitsByNumberModule } from '../sale-limits-by-number/sale-limits-by-number.module';
 import { SalePointsModule } from '../sale-points/sale-points.module';
 import { UsersModule } from '../users/users.module';
 import { FOLIO_GENERATOR } from './application/ports/folio-generator.port';
@@ -34,6 +35,7 @@ import { TimestampFolioGenerator } from './infrastructure/services/timestamp-fol
     GamesModule,
     SalePointsModule,
     SaleLimitsModule,
+    SaleLimitsByNumberModule,
     UsersModule,
     FeatureFlagsModule,
   ],
