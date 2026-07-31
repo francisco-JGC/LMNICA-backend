@@ -7,6 +7,7 @@ export class SalePointMapper {
       name: orm.name,
       code: orm.code,
       ownerPartnerId: orm.ownerPartnerId,
+      partnerPaymentPercentage: orm.partnerPaymentPercentage,
       isActive: orm.isActive,
       createdAt: orm.createdAt,
       updatedAt: orm.updatedAt,
@@ -19,6 +20,7 @@ export class SalePointMapper {
     entity.name = salePoint.name;
     entity.code = salePoint.code;
     entity.ownerPartnerId = salePoint.ownerPartnerId;
+    entity.partnerPaymentPercentage = salePoint.partnerPaymentPercentage;
     entity.isActive = salePoint.isActive;
     entity.createdAt = salePoint.createdAt;
     entity.updatedAt = salePoint.updatedAt;

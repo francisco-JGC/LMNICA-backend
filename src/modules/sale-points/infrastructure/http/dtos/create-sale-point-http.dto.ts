@@ -1,10 +1,13 @@
 import {
+  IsInt,
   IsNotEmpty,
   IsOptional,
   IsString,
   IsUUID,
+  Max,
   MaxLength,
   Matches,
+  Min,
   MinLength,
 } from 'class-validator';
 
@@ -26,4 +29,10 @@ export class CreateSalePointHttpDto {
   @IsOptional()
   @IsUUID()
   ownerPartnerId?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(100)
+  partnerPaymentPercentage?: number;
 }

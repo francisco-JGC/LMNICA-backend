@@ -45,6 +45,7 @@ export class CreateSalePoint
       name: input.name,
       code: input.code,
       ownerPartnerId: input.ownerPartnerId ?? null,
+      partnerPaymentPercentage: input.partnerPaymentPercentage ?? null,
     });
     await this.salePoints.save(salePoint);
     return toSalePointOutput(salePoint);

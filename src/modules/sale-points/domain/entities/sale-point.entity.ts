@@ -11,6 +11,13 @@ export interface SalePointProps {
    * are only visible to admins.
    */
   ownerPartnerId: string | null;
+  /**
+   * % de las ventas semanales de esta sucursal que se le paga al
+   * `ownerPartnerId` como pago semanal. `null` = sin pago configurado.
+   * Rango válido: 0–100 entero. Los "socios asignados" (visibilidad
+   * read-only) no cobran — solo el encargado.
+   */
+  partnerPaymentPercentage: number | null;
   isActive: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -25,12 +32,15 @@ export class SalePoint extends AggregateRoot<SalePointProps> {
     name: string;
     code: string;
     ownerPartnerId: string | null;
+    partnerPaymentPercentage?: number | null;
   }): SalePoint {
+    validatePercentage(input.partnerPaymentPercentage ?? null);
     const now = new Date();
     return new SalePoint(randomUUID(), {
       name: input.name,
       code: input.code,
       ownerPartnerId: input.ownerPartnerId,
+      partnerPaymentPercentage: input.partnerPaymentPercentage ?? null,
       isActive: true,
       createdAt: now,
       updatedAt: now,
@@ -51,6 +61,10 @@ export class SalePoint extends AggregateRoot<SalePointProps> {
 
   get ownerPartnerId(): string | null {
     return this.props.ownerPartnerId;
+  }
+
+  get partnerPaymentPercentage(): number | null {
+    return this.props.partnerPaymentPercentage;
   }
 
   get isActive(): boolean {
@@ -84,12 +98,26 @@ export class SalePoint extends AggregateRoot<SalePointProps> {
     name?: string;
     code?: string;
     ownerPartnerId?: string | null;
+    partnerPaymentPercentage?: number | null;
   }): void {
     if (patch.name !== undefined) this.props.name = patch.name;
     if (patch.code !== undefined) this.props.code = patch.code;
     if (patch.ownerPartnerId !== undefined) {
       this.props.ownerPartnerId = patch.ownerPartnerId;
     }
+    if (patch.partnerPaymentPercentage !== undefined) {
+      validatePercentage(patch.partnerPaymentPercentage);
+      this.props.partnerPaymentPercentage = patch.partnerPaymentPercentage;
+    }
     this.props.updatedAt = new Date();
+  }
+}
+
+function validatePercentage(value: number | null): void {
+  if (value === null) return;
+  if (!Number.isInteger(value) || value < 0 || value > 100) {
+    throw new Error(
+      `partnerPaymentPercentage must be an integer between 0 and 100 (got ${value})`,
+    );
   }
 }

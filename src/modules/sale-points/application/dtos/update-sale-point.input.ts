@@ -8,4 +8,9 @@ export interface UpdateSalePointInput {
    * assigns a new partner.
    */
   ownerPartnerId?: string | null;
+  /**
+   * `undefined` = deja el valor actual. `null` = borra la config
+   * (encargado no cobra). Un entero 0-100 = nuevo %.
+   */
+  partnerPaymentPercentage?: number | null;
 }

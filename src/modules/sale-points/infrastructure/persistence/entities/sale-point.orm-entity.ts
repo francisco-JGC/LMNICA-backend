@@ -31,6 +31,13 @@ export class SalePointOrmEntity {
   @JoinColumn({ name: 'owner_partner_id' })
   ownerPartner?: UserOrmEntity | null;
 
+  @Column({
+    type: 'smallint',
+    name: 'partner_payment_percentage',
+    nullable: true,
+  })
+  partnerPaymentPercentage!: number | null;
+
   @Column({ type: 'boolean', name: 'is_active', default: true })
   isActive!: boolean;
 

@@ -7,4 +7,6 @@ export interface CreateSalePointInput {
    * visible to admins.
    */
   ownerPartnerId?: string | null;
+  /** % semanal al encargado. Ver SalePoint entity. */
+  partnerPaymentPercentage?: number | null;
 }

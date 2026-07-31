@@ -8,6 +8,8 @@ export interface SalePointOutput {
   ownerPartnerId: string | null;
   /** Additional partners that can see this sucursal (read-only visibility). */
   assignedPartnerIds: string[];
+  /** % semanal que se le paga al encargado sobre las ventas de la sucursal. */
+  partnerPaymentPercentage: number | null;
   isActive: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -22,6 +24,7 @@ export const toSalePointOutput = (
   code: salePoint.code,
   ownerPartnerId: salePoint.ownerPartnerId,
   assignedPartnerIds,
+  partnerPaymentPercentage: salePoint.partnerPaymentPercentage,
   isActive: salePoint.isActive,
   createdAt: salePoint.createdAt,
   updatedAt: salePoint.updatedAt,

@@ -55,6 +55,7 @@ export class UpdateSalePoint
       name: input.name,
       code: input.code,
       ownerPartnerId: input.ownerPartnerId,
+      partnerPaymentPercentage: input.partnerPaymentPercentage,
     });
     await this.salePoints.save(salePoint);
     const assigned = await this.salePoints.getAssignedPartnerIds(salePoint.id);

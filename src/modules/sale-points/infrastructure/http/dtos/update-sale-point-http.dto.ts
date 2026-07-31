@@ -1,9 +1,12 @@
 import {
+  IsInt,
   IsOptional,
   IsString,
   IsUUID,
   Matches,
+  Max,
   MaxLength,
+  Min,
   MinLength,
   ValidateIf,
 } from 'class-validator';
@@ -28,4 +31,11 @@ export class UpdateSalePointHttpDto {
   @ValidateIf((_, value) => value !== null)
   @IsUUID()
   ownerPartnerId?: string | null;
+
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @IsInt()
+  @Min(0)
+  @Max(100)
+  partnerPaymentPercentage?: number | null;
 }
