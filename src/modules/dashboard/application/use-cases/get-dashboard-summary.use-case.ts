@@ -13,10 +13,8 @@ import { UserRole } from '../../../users/domain/value-objects/user-role';
 import { ListWinningTickets } from '../../../tickets/application/use-cases/list-winning-tickets.use-case';
 import type {
   DashboardSummaryOutput,
-  DrawStatus,
   PendingPayoutPreview,
   RankingItem,
-  TodayDrawItem,
 } from '../dtos/dashboard-summary.output';
 
 const MONTHS_IN_SERIES = 7;
@@ -25,8 +23,6 @@ const MONTH_LABELS = [
   'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
   'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
 ] as const;
-
-const POST_DRAW_GRACE_MINUTES = 3;
 
 export interface DashboardSummaryInput {
   requesterId: string;
@@ -51,7 +47,6 @@ const EMPTY_SUMMARY: DashboardSummaryOutput = {
   totalUsers: 0,
   monthlySeries: [],
   byGame: [],
-  todayDraws: [],
   pendingPayouts: { count: 0, totalAmount: 0, items: [] },
   topSellers: [],
   topSalePoints: [],
@@ -87,7 +82,6 @@ export class GetDashboardSummary
       kpis,
       monthlySeries,
       byGame,
-      todayDraws,
       pendingPayouts,
       topSellers,
       topSalePoints,
@@ -95,7 +89,6 @@ export class GetDashboardSummary
       this.loadKpis(scope),
       this.loadMonthlySeries(scope),
       this.loadGameBreakdown(scope),
-      this.loadTodayDraws(),
       this.loadPendingPayouts(input),
       this.loadTopSellers(scope),
       this.loadTopSalePoints(scope),
@@ -104,7 +97,6 @@ export class GetDashboardSummary
       ...kpis,
       monthlySeries,
       byGame,
-      todayDraws,
       pendingPayouts,
       topSellers,
       topSalePoints,
@@ -118,7 +110,6 @@ export class GetDashboardSummary
       DashboardSummaryOutput,
       | 'monthlySeries'
       | 'byGame'
-      | 'todayDraws'
       | 'pendingPayouts'
       | 'topSellers'
       | 'topSalePoints'
@@ -295,101 +286,6 @@ export class GetDashboardSummary
       billed: Number(r.billed),
       paid: Number(r.paid),
     }));
-  }
-
-  // --- Today draws ----------------------------------------------------------
-
-  /**
-   * Draws are a global lottery event — every partner (and every seller) uses
-   * the same schedules/results — so this stays unscoped.
-   */
-  private async loadTodayDraws(): Promise<TodayDrawItem[]> {
-    const rows = await this.dataSource.query<
-      Array<{
-        game_id: string;
-        game_name: string;
-        draw_time: string;
-        cutoff_minutes: number;
-        winning_number: string | null;
-        now_minutes: string;
-      }>
-    >(
-      `
-      WITH biz AS (
-        SELECT
-          (now() AT TIME ZONE $1)::date AS today,
-          EXTRACT(DOW FROM (now() AT TIME ZONE $1))::int AS dow_pg,
-          (EXTRACT(HOUR FROM (now() AT TIME ZONE $1)) * 60
-            + EXTRACT(MINUTE FROM (now() AT TIME ZONE $1)))::int AS now_minutes
-      ),
-      today_schedules AS (
-        SELECT
-          g.id AS game_id,
-          g.name AS game_name,
-          g.order_index,
-          s.cutoff_minutes,
-          s.draw_time
-        FROM draw_schedules s
-        JOIN games g ON g.id = s.game_id
-        CROSS JOIN biz
-        WHERE s.is_active
-          AND g.is_active
-          AND (s.day_of_week IS NULL OR s.day_of_week = biz.dow_pg)
-      ),
-      today_results AS (
-        SELECT
-          dr.game_id,
-          to_char(dr.draw_at AT TIME ZONE $1, 'HH24:MI') AS draw_time,
-          dr.winning_number
-        FROM draw_results dr
-        CROSS JOIN biz
-        WHERE (dr.draw_at AT TIME ZONE $1)::date = biz.today
-      )
-      SELECT
-        ts.game_id,
-        ts.game_name,
-        ts.draw_time,
-        ts.cutoff_minutes,
-        tr.winning_number,
-        biz.now_minutes::text AS now_minutes
-      FROM today_schedules ts
-      CROSS JOIN biz
-      LEFT JOIN today_results tr
-        ON tr.game_id = ts.game_id AND tr.draw_time = ts.draw_time
-      ORDER BY ts.draw_time ASC, ts.order_index ASC
-      `,
-      [BUSINESS_TZ],
-    );
-
-    return rows.map((r) => ({
-      gameId: r.game_id,
-      gameName: r.game_name,
-      drawTime: r.draw_time,
-      status: this.computeDrawStatus(
-        r.draw_time,
-        r.cutoff_minutes,
-        r.winning_number,
-        Number(r.now_minutes),
-      ),
-      winningNumber: r.winning_number,
-      cutoffMinutes: r.cutoff_minutes,
-    }));
-  }
-
-  private computeDrawStatus(
-    drawTime: string,
-    cutoffMinutes: number,
-    winningNumber: string | null,
-    nowMinutes: number,
-  ): DrawStatus {
-    if (winningNumber !== null) return 'settled';
-    const [hh, mm] = drawTime.split(':').map((n) => Number(n));
-    const drawMinutes = hh * 60 + mm;
-    const cutoffAtMin = drawMinutes - cutoffMinutes;
-    const graceEndsMin = drawMinutes + POST_DRAW_GRACE_MINUTES;
-    if (nowMinutes < cutoffAtMin) return 'upcoming';
-    if (nowMinutes <= graceEndsMin) return 'in_progress';
-    return 'result_pending';
   }
 
   // --- Pending payouts ------------------------------------------------------

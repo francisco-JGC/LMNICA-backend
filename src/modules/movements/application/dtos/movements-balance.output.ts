@@ -14,6 +14,18 @@ export interface MovementsBalanceRow {
   salePointName: string;
   ownerPartnerId: string | null;
   ownerPartnerName: string | null;
+  /**
+   * % semanal configurado en la sucursal para el encargado
+   * (`sale_points.partner_payment_percentage`). `null` = sin % configurado
+   * o sin encargado asignado.
+   */
+  partnerPaymentPercentage: number | null;
+  /**
+   * Salario del encargado según el % configurado sobre las ventas de la
+   * sucursal en el rango: `Math.round(billed * partnerPaymentPercentage / 100)`.
+   * `null` cuando no hay encargado o no hay % configurado.
+   */
+  partnerSalary: number | null;
   /** Sum of `tickets.total` for `valid` tickets. */
   billed: number;
   /** Sum of `tickets.paid_prize` for tickets marked as paid. Informacional. */

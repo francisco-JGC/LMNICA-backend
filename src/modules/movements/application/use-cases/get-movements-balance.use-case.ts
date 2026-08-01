@@ -179,6 +179,12 @@ export class GetMovementsBalance
       // Net usa `wonPrize` (deuda total con ganadores) para reflejar la
       // ganancia/pérdida real independientemente de si ya se pagaron.
       const net = billed - wonPrize + deposits - withdrawals - expenses;
+      // Salario del encargado: % configurado sobre lo facturado por toda
+      // la sucursal en el rango. Solo aplica si hay encargado asignado y
+      // % configurado (mismo criterio que `get-seller-report`).
+      const pct =
+        sp?.ownerPartnerId != null ? sp.partnerPaymentPercentage : null;
+      const partnerSalary = pct !== null ? Math.round((billed * pct) / 100) : null;
       return {
         salePointId: r.sale_point_id,
         salePointName: sp?.name ?? '—',
@@ -186,6 +192,8 @@ export class GetMovementsBalance
         ownerPartnerName: sp?.ownerPartnerId
           ? partnerNameById.get(sp.ownerPartnerId) ?? null
           : null,
+        partnerPaymentPercentage: pct,
+        partnerSalary,
         billed,
         paidPrize,
         wonPrize,
