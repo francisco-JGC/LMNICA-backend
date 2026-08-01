@@ -166,7 +166,7 @@ export class GetMovementsBalance
       ),
     );
     const partners = await this.users.findByIds(partnerIds);
-    const partnerNameById = new Map(partners.map((p) => [p.id, p.name]));
+    const partnerById = new Map(partners.map((p) => [p.id, p]));
 
     const items: MovementsBalanceRow[] = rows.map((r) => {
       const sp = salePointById.get(r.sale_point_id);
@@ -185,13 +185,15 @@ export class GetMovementsBalance
       const pct =
         sp?.ownerPartnerId != null ? sp.partnerPaymentPercentage : null;
       const partnerSalary = pct !== null ? Math.round((billed * pct) / 100) : null;
+      const owner = sp?.ownerPartnerId
+        ? partnerById.get(sp.ownerPartnerId) ?? null
+        : null;
       return {
         salePointId: r.sale_point_id,
         salePointName: sp?.name ?? '—',
         ownerPartnerId: sp?.ownerPartnerId ?? null,
-        ownerPartnerName: sp?.ownerPartnerId
-          ? partnerNameById.get(sp.ownerPartnerId) ?? null
-          : null,
+        ownerPartnerName: owner?.name ?? null,
+        ownerPartnerPhone: owner?.phone ?? null,
         partnerPaymentPercentage: pct,
         partnerSalary,
         billed,

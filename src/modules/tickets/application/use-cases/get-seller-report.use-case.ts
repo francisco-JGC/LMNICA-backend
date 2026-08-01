@@ -141,6 +141,7 @@ export class GetSellerReport
       return {
         sellerId: seller.id,
         sellerName: seller.name,
+        sellerPhone: seller.phone,
         ticketCount: r ? Number(r.ticket_count) : 0,
         voidedCount: r ? Number(r.voided_count) : 0,
         paidCount: r ? Number(r.paid_count) : 0,
