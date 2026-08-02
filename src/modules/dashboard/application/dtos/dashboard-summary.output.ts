@@ -44,6 +44,13 @@ export interface DashboardSummaryOutput {
   // Today
   billedToday: number;
   paidToday: number;
+  /**
+   * Suma de premios ganados por tickets vendidos hoy — pagados o no.
+   * Se evalúa contra los `draw_results` registrados; los tickets con
+   * sorteo pendiente contribuyen 0. Representa la "pérdida real" del
+   * día independientemente de si el ganador ya pasó a cobrar.
+   */
+  wonToday: number;
   profitToday: number;
   ticketsToday: number;
   averageTicketToday: number;
@@ -51,6 +58,7 @@ export interface DashboardSummaryOutput {
   // Yesterday (for delta calculations)
   billedYesterday: number;
   paidYesterday: number;
+  wonYesterday: number;
   profitYesterday: number;
   ticketsYesterday: number;
 

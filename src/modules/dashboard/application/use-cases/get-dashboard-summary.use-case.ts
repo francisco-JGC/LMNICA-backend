@@ -35,11 +35,13 @@ type SalePointScope = string[];
 const EMPTY_SUMMARY: DashboardSummaryOutput = {
   billedToday: 0,
   paidToday: 0,
+  wonToday: 0,
   profitToday: 0,
   ticketsToday: 0,
   averageTicketToday: 0,
   billedYesterday: 0,
   paidYesterday: 0,
+  wonYesterday: 0,
   profitYesterday: 0,
   ticketsYesterday: 0,
   weeklyBilled: 0,
@@ -51,6 +53,9 @@ const EMPTY_SUMMARY: DashboardSummaryOutput = {
   topSellers: [],
   topSalePoints: [],
 };
+
+/** Managua está en UTC-6 fijo (sin DST). Ver `BusinessTime` helper. */
+const BUSINESS_TZ_OFFSET_HOURS = -6;
 
 /**
  * Aggregates the numbers powering the home dashboard.
@@ -80,6 +85,7 @@ export class GetDashboardSummary
 
     const [
       kpis,
+      wonKpis,
       monthlySeries,
       byGame,
       pendingPayouts,
@@ -87,14 +93,23 @@ export class GetDashboardSummary
       topSalePoints,
     ] = await Promise.all([
       this.loadKpis(scope),
+      this.loadWonKpis(input),
       this.loadMonthlySeries(scope),
       this.loadGameBreakdown(scope),
       this.loadPendingPayouts(input),
       this.loadTopSellers(scope),
       this.loadTopSalePoints(scope),
     ]);
+    // Utilidad = facturado − pérdida (pérdida = premios ganados aunque
+    // no se hayan cobrado). Refleja ganancia real, no cash-flow.
+    const profitToday = kpis.billedToday - wonKpis.wonToday;
+    const profitYesterday = kpis.billedYesterday - wonKpis.wonYesterday;
+
     return {
       ...kpis,
+      ...wonKpis,
+      profitToday,
+      profitYesterday,
       monthlySeries,
       byGame,
       pendingPayouts,
@@ -103,11 +118,79 @@ export class GetDashboardSummary
     };
   }
 
+  // --- Won-by-clients KPIs --------------------------------------------------
+
+  /**
+   * Suma de premios ganados por tickets vendidos HOY y AYER, evaluados
+   * contra los resultados registrados. Un ticket con sorteo aún sin
+   * resultado no contribuye — su premio aparecerá cuando se registre.
+   *
+   * Reutiliza `ListWinningTickets` para no duplicar la lógica de
+   * evaluación (exacto / fácil / premio par); esta pide dos días de
+   * tickets y hacemos el split en memoria por `createdAt`.
+   */
+  private async loadWonKpis(
+    caller: DashboardSummaryInput,
+  ): Promise<{ wonToday: number; wonYesterday: number }> {
+    const { todayStart, todayEnd, yesterdayStart } =
+      this.businessDayBoundaries();
+
+    const winners = await this.listWinningTickets.execute({
+      requesterId: caller.requesterId,
+      requesterRole: caller.requesterRole,
+      from: yesterdayStart,
+      to: todayEnd,
+    });
+
+    let wonToday = 0;
+    let wonYesterday = 0;
+    for (const w of winners) {
+      const createdAt = new Date(w.ticket.createdAt);
+      if (createdAt >= todayStart && createdAt < todayEnd) {
+        wonToday += w.totalPrize;
+      } else if (createdAt >= yesterdayStart && createdAt < todayStart) {
+        wonYesterday += w.totalPrize;
+      }
+    }
+    return { wonToday, wonYesterday };
+  }
+
+  /**
+   * Límites hoy/ayer alineados a la medianoche de Managua expresados
+   * como instantes UTC. Mismo criterio que las queries SQL de KPIs
+   * (`(now() AT TIME ZONE 'America/Managua')::date`) pero calculado en
+   * TS para poder pasarlo a `ListWinningTickets`.
+   */
+  private businessDayBoundaries(): {
+    todayStart: Date;
+    todayEnd: Date;
+    yesterdayStart: Date;
+  } {
+    const offsetMs = BUSINESS_TZ_OFFSET_HOURS * 60 * 60 * 1000;
+    const nowBiz = new Date(Date.now() + offsetMs);
+    const y = nowBiz.getUTCFullYear();
+    const m = nowBiz.getUTCMonth();
+    const d = nowBiz.getUTCDate();
+    // Managua midnight = UTC +6h. `Date.UTC(y, m, d, 0)` es medianoche
+    // UTC del mismo día; le sumamos 6h para llegar a medianoche Managua.
+    const managuaMidnightUtcMs = (day: number) =>
+      Date.UTC(y, m, day) - offsetMs;
+    return {
+      todayStart: new Date(managuaMidnightUtcMs(d)),
+      todayEnd: new Date(managuaMidnightUtcMs(d + 1)),
+      yesterdayStart: new Date(managuaMidnightUtcMs(d - 1)),
+    };
+  }
+
   // --- KPIs -----------------------------------------------------------------
 
   private async loadKpis(scope: SalePointScope): Promise<
     Omit<
       DashboardSummaryOutput,
+      | 'wonToday'
+      | 'wonYesterday'
+      | 'profitToday'
+      | 'profitYesterday'
       | 'monthlySeries'
       | 'byGame'
       | 'pendingPayouts'
@@ -186,15 +269,19 @@ export class GetDashboardSummary
     const billedYesterday = Number(row?.billed_yesterday ?? 0);
     const paidYesterday = Number(row?.paid_yesterday ?? 0);
     const ticketsYesterday = Number(row?.tickets_yesterday ?? 0);
+    // `profitToday` / `profitYesterday` NO se calculan acá — se
+    // computan en `execute()` como `billed - won` una vez que
+    // `loadWonKpis` resuelve. Así "utilidad" refleja la ganancia real
+    // (descontando premios ganados aunque no se hayan cobrado todavía),
+    // en vez de solo el cash-flow (`billed - paid`).
     return {
       billedToday,
       paidToday,
-      profitToday: billedToday - paidToday,
       ticketsToday,
-      averageTicketToday: ticketsToday === 0 ? 0 : Math.round(billedToday / ticketsToday),
+      averageTicketToday:
+        ticketsToday === 0 ? 0 : Math.round(billedToday / ticketsToday),
       billedYesterday,
       paidYesterday,
-      profitYesterday: billedYesterday - paidYesterday,
       ticketsYesterday,
       weeklyBilled: Number(row?.weekly_billed ?? 0),
       weeklyBilledPrev: Number(row?.weekly_billed_prev ?? 0),
