@@ -180,17 +180,19 @@ export class GetMovementsBalance
       // ganancia/pérdida real independientemente de si ya se pagaron.
       const net = billed - wonPrize + deposits - withdrawals - expenses;
       // Salario del encargado: % sobre lo facturado por toda la sucursal
-      // en el rango. Prioridad:
-      //   1) `owner.paymentPercentage` (configurado en el usuario socio).
-      //   2) `sp.partnerPaymentPercentage` legacy (configurado en la
-      //      sucursal antes de que el % migrara al usuario). Se mantiene
-      //      para no romper configuraciones existentes.
-      // Sin encargado o sin % en ninguno de los dos → null.
+      // en el rango. Solo aplica si HAY encargado — sin encargado no hay
+      // a quién pagarle, aunque la sucursal tenga un % legacy guardado.
+      // Prioridad del %:
+      //   1) `owner.paymentPercentage` (usuario socio, fuente actual).
+      //   2) `sp.partnerPaymentPercentage` legacy (antes vivía en la
+      //      sucursal). Sirve de fallback para configuraciones que aún
+      //      no se migraron manualmente al usuario.
       const owner = sp?.ownerPartnerId
         ? partnerById.get(sp.ownerPartnerId) ?? null
         : null;
-      const pct =
-        owner?.paymentPercentage ?? sp?.partnerPaymentPercentage ?? null;
+      const pct = owner
+        ? owner.paymentPercentage ?? sp?.partnerPaymentPercentage ?? null
+        : null;
       const partnerSalary =
         pct !== null ? Math.round((billed * pct) / 100) : null;
       return {
