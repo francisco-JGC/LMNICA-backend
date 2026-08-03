@@ -176,20 +176,14 @@ export class GetMovementsBalance
       const deposits = Number(r.deposits);
       const withdrawals = Number(r.withdrawals);
       const expenses = Number(r.expenses);
-      // Salario del encargado: % sobre lo facturado por toda la sucursal
-      // en el rango. Solo aplica si HAY encargado — sin encargado no hay
-      // a quién pagarle, aunque la sucursal tenga un % legacy guardado.
-      // Prioridad del %:
-      //   1) `owner.paymentPercentage` (usuario socio, fuente actual).
-      //   2) `sp.partnerPaymentPercentage` legacy (antes vivía en la
-      //      sucursal). Sirve de fallback para configuraciones que aún
-      //      no se migraron manualmente al usuario.
+      // Salario del encargado: % configurado a nivel sucursal, aplicado
+      // sobre lo facturado en el rango. El % vive en la sucursal (no en
+      // el usuario) porque hay sucursales que las opera directamente el
+      // owner sin encargado asignado y el cálculo igual sirve.
       const owner = sp?.ownerPartnerId
         ? partnerById.get(sp.ownerPartnerId) ?? null
         : null;
-      const pct = owner
-        ? owner.paymentPercentage ?? sp?.partnerPaymentPercentage ?? null
-        : null;
+      const pct = sp?.partnerPaymentPercentage ?? null;
       const partnerSalary =
         pct !== null ? Math.round((billed * pct) / 100) : null;
       // Net usa `wonPrize` (deuda total con ganadores) + descuenta el

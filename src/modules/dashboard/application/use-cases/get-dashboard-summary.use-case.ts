@@ -244,13 +244,14 @@ export class GetDashboardSummary
 
   /**
    * Salarios totales del rango: comisiones de vendedores sobre sus
-   * propias ventas + comisiones de encargados sobre las ventas de su
+   * propias ventas + comisiones del encargado sobre las ventas de su
    * sucursal. Se descuentan del `profit` porque son costos reales.
    *
-   * Para vendedores usa `users.payment_percentage` directamente.
-   * Para encargados prioriza `owner.payment_percentage` (usuario socio)
-   * y cae al legacy `sale_points.partner_payment_percentage` — mismo
-   * criterio que `get-movements-balance`.
+   * Vendedores → `users.payment_percentage`.
+   * Encargado → `sale_points.partner_payment_percentage` (vive en la
+   * sucursal). Aplica aunque la sucursal no tenga socio asignado como
+   * encargado — el % es la política de comisión del puesto, no del
+   * usuario que lo ocupa.
    */
   private async loadSalariesTotal(
     scope: SalePointScope,
@@ -274,16 +275,12 @@ export class GetDashboardSummary
             AND u.payment_percentage IS NOT NULL
             AND u.sale_point_id = ANY($1::uuid[])
         ),
-        -- Sucursales en scope con encargado y % efectivo (owner o legacy).
+        -- Sucursales en scope con % configurado.
         sucursales_pct AS (
-          SELECT
-            sp.id,
-            COALESCE(u.payment_percentage, sp.partner_payment_percentage) AS pct
+          SELECT sp.id, sp.partner_payment_percentage AS pct
           FROM sale_points sp
-          LEFT JOIN users u ON u.id = sp.owner_partner_id
           WHERE sp.id = ANY($1::uuid[])
-            AND sp.owner_partner_id IS NOT NULL
-            AND COALESCE(u.payment_percentage, sp.partner_payment_percentage) IS NOT NULL
+            AND sp.partner_payment_percentage IS NOT NULL
         ),
         -- Facturado por vendedor (rango y prev), un solo scan sobre tickets.
         seller_billed AS (
