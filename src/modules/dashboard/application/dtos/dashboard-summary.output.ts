@@ -50,8 +50,17 @@ export interface DashboardSummaryOutput {
    * cuyo sorteo aún no tiene resultado contribuyen 0.
    */
   won: number;
-  /** `billed − won`. Refleja la utilidad real, no el cash-flow. */
+  /**
+   * `billed − won − salaries`. Utilidad real después de descontar
+   * premios adeudados a clientes Y salarios de vendedores + encargados.
+   */
   profit: number;
+  /**
+   * Suma de todos los salarios del rango:
+   *   Σ (vendedor_facturado × pct_vendedor) + Σ (sucursal_facturada × pct_encargado)
+   * Descontados en `profit` porque son costos reales.
+   */
+  salaries: number;
   tickets: number;
   averageTicket: number;
 
@@ -62,6 +71,7 @@ export interface DashboardSummaryOutput {
   paidPrev: number;
   wonPrev: number;
   profitPrev: number;
+  salariesPrev: number;
   ticketsPrev: number;
 
   // Weekly window (last 7 days) + previous week for comparison —

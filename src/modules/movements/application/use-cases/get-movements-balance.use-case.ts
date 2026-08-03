@@ -176,9 +176,6 @@ export class GetMovementsBalance
       const deposits = Number(r.deposits);
       const withdrawals = Number(r.withdrawals);
       const expenses = Number(r.expenses);
-      // Net usa `wonPrize` (deuda total con ganadores) para reflejar la
-      // ganancia/pérdida real independientemente de si ya se pagaron.
-      const net = billed - wonPrize + deposits - withdrawals - expenses;
       // Salario del encargado: % sobre lo facturado por toda la sucursal
       // en el rango. Solo aplica si HAY encargado — sin encargado no hay
       // a quién pagarle, aunque la sucursal tenga un % legacy guardado.
@@ -195,6 +192,16 @@ export class GetMovementsBalance
         : null;
       const partnerSalary =
         pct !== null ? Math.round((billed * pct) / 100) : null;
+      // Net usa `wonPrize` (deuda total con ganadores) + descuenta el
+      // salario del encargado — ambos son costos reales que reducen el
+      // dinero que efectivamente le queda al owner de la operación.
+      const net =
+        billed -
+        wonPrize -
+        (partnerSalary ?? 0) +
+        deposits -
+        withdrawals -
+        expenses;
       return {
         salePointId: r.sale_point_id,
         salePointName: sp?.name ?? '—',

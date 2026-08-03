@@ -56,12 +56,14 @@ const EMPTY_SUMMARY: DashboardSummaryOutput = {
   paid: 0,
   won: 0,
   profit: 0,
+  salaries: 0,
   tickets: 0,
   averageTicket: 0,
   billedPrev: 0,
   paidPrev: 0,
   wonPrev: 0,
   profitPrev: 0,
+  salariesPrev: 0,
   ticketsPrev: 0,
   weeklyBilled: 0,
   weeklyBilledPrev: 0,
@@ -104,6 +106,7 @@ export class GetDashboardSummary
     const [
       kpis,
       wonKpis,
+      salariesKpis,
       monthlySeries,
       byGame,
       pendingPayouts,
@@ -112,20 +115,25 @@ export class GetDashboardSummary
     ] = await Promise.all([
       this.loadKpis(scope, ranges),
       this.loadWonKpis(input, ranges),
+      this.loadSalariesTotal(scope, ranges),
       this.loadMonthlySeries(scope),
       this.loadGameBreakdown(scope, ranges),
       this.loadPendingPayouts(input),
       this.loadTopSellers(scope, ranges),
       this.loadTopSalePoints(scope, ranges),
     ]);
-    // Utilidad = facturado − pérdida (pérdida = premios ganados aunque
-    // no se hayan cobrado). Refleja ganancia real, no cash-flow.
-    const profit = kpis.billed - wonKpis.won;
-    const profitPrev = kpis.billedPrev - wonKpis.wonPrev;
+    // Utilidad = facturado − pérdida − salarios. Descuenta premios
+    // adeudados a clientes Y comisiones a vendedores/encargados, que
+    // son costos reales del rango aunque no se hayan pagado.
+    const profit =
+      kpis.billed - wonKpis.won - salariesKpis.salaries;
+    const profitPrev =
+      kpis.billedPrev - wonKpis.wonPrev - salariesKpis.salariesPrev;
 
     return {
       ...kpis,
       ...wonKpis,
+      ...salariesKpis,
       profit,
       profitPrev,
       monthlySeries,
@@ -232,6 +240,119 @@ export class GetDashboardSummary
     return { won, wonPrev };
   }
 
+  // --- Salaries -------------------------------------------------------------
+
+  /**
+   * Salarios totales del rango: comisiones de vendedores sobre sus
+   * propias ventas + comisiones de encargados sobre las ventas de su
+   * sucursal. Se descuentan del `profit` porque son costos reales.
+   *
+   * Para vendedores usa `users.payment_percentage` directamente.
+   * Para encargados prioriza `owner.payment_percentage` (usuario socio)
+   * y cae al legacy `sale_points.partner_payment_percentage` — mismo
+   * criterio que `get-movements-balance`.
+   */
+  private async loadSalariesTotal(
+    scope: SalePointScope,
+    ranges: Ranges,
+  ): Promise<{ salaries: number; salariesPrev: number }> {
+    const rows = await this.dataSource.query<
+      Array<{
+        seller_salaries: string;
+        seller_salaries_prev: string;
+        encargado_salaries: string;
+        encargado_salaries_prev: string;
+      }>
+    >(
+      `
+      WITH
+        -- Vendedores en scope con % configurado.
+        sellers_pct AS (
+          SELECT u.id, u.payment_percentage AS pct
+          FROM users u
+          WHERE u.role = 'seller'
+            AND u.payment_percentage IS NOT NULL
+            AND u.sale_point_id = ANY($1::uuid[])
+        ),
+        -- Sucursales en scope con encargado y % efectivo (owner o legacy).
+        sucursales_pct AS (
+          SELECT
+            sp.id,
+            COALESCE(u.payment_percentage, sp.partner_payment_percentage) AS pct
+          FROM sale_points sp
+          LEFT JOIN users u ON u.id = sp.owner_partner_id
+          WHERE sp.id = ANY($1::uuid[])
+            AND sp.owner_partner_id IS NOT NULL
+            AND COALESCE(u.payment_percentage, sp.partner_payment_percentage) IS NOT NULL
+        ),
+        -- Facturado por vendedor (rango y prev), un solo scan sobre tickets.
+        seller_billed AS (
+          SELECT
+            t.seller_id AS id,
+            SUM(CASE
+              WHEN t.created_at >= $2::timestamptz AND t.created_at < $3::timestamptz
+              THEN t.total ELSE 0
+            END)::bigint AS billed,
+            SUM(CASE
+              WHEN t.created_at >= $4::timestamptz AND t.created_at < $5::timestamptz
+              THEN t.total ELSE 0
+            END)::bigint AS billed_prev
+          FROM tickets t
+          WHERE t.status = 'valid'
+            AND t.sale_point_id = ANY($1::uuid[])
+            AND t.created_at >= $4::timestamptz
+            AND t.created_at < $3::timestamptz
+          GROUP BY t.seller_id
+        ),
+        -- Facturado por sucursal (rango y prev), un solo scan.
+        sucursal_billed AS (
+          SELECT
+            t.sale_point_id AS id,
+            SUM(CASE
+              WHEN t.created_at >= $2::timestamptz AND t.created_at < $3::timestamptz
+              THEN t.total ELSE 0
+            END)::bigint AS billed,
+            SUM(CASE
+              WHEN t.created_at >= $4::timestamptz AND t.created_at < $5::timestamptz
+              THEN t.total ELSE 0
+            END)::bigint AS billed_prev
+          FROM tickets t
+          WHERE t.status = 'valid'
+            AND t.sale_point_id = ANY($1::uuid[])
+            AND t.created_at >= $4::timestamptz
+            AND t.created_at < $3::timestamptz
+          GROUP BY t.sale_point_id
+        )
+      SELECT
+        COALESCE((
+          SELECT SUM(ROUND(sb.billed * s.pct / 100.0))
+          FROM sellers_pct s JOIN seller_billed sb ON sb.id = s.id
+        ), 0)::bigint AS seller_salaries,
+        COALESCE((
+          SELECT SUM(ROUND(sb.billed_prev * s.pct / 100.0))
+          FROM sellers_pct s JOIN seller_billed sb ON sb.id = s.id
+        ), 0)::bigint AS seller_salaries_prev,
+        COALESCE((
+          SELECT SUM(ROUND(sb.billed * s.pct / 100.0))
+          FROM sucursales_pct s JOIN sucursal_billed sb ON sb.id = s.id
+        ), 0)::bigint AS encargado_salaries,
+        COALESCE((
+          SELECT SUM(ROUND(sb.billed_prev * s.pct / 100.0))
+          FROM sucursales_pct s JOIN sucursal_billed sb ON sb.id = s.id
+        ), 0)::bigint AS encargado_salaries_prev
+      `,
+      [scope, ranges.from, ranges.to, ranges.prevFrom, ranges.prevTo],
+    );
+    const row = rows[0];
+    const salaries =
+      Number(row?.seller_salaries ?? 0) +
+      Number(row?.encargado_salaries ?? 0);
+    const salariesPrev =
+      Number(row?.seller_salaries_prev ?? 0) +
+      Number(row?.encargado_salaries_prev ?? 0);
+    return { salaries, salariesPrev };
+  }
+
   // --- KPIs -----------------------------------------------------------------
 
   private async loadKpis(
@@ -244,6 +365,8 @@ export class GetDashboardSummary
       | 'wonPrev'
       | 'profit'
       | 'profitPrev'
+      | 'salaries'
+      | 'salariesPrev'
       | 'monthlySeries'
       | 'byGame'
       | 'pendingPayouts'
@@ -405,20 +528,20 @@ export class GetDashboardSummary
         g.name,
         COALESCE(SUM(CASE
           WHEN t.status = 'valid'
-           AND t.created_at >= $3::timestamptz AND t.created_at < $4::timestamptz
-           AND t.sale_point_id = ANY($2::uuid[])
+           AND t.created_at >= $2::timestamptz AND t.created_at < $3::timestamptz
+           AND t.sale_point_id = ANY($1::uuid[])
           THEN t.total ELSE 0 END), 0)::bigint AS billed,
         COALESCE(SUM(CASE
           WHEN t.paid_at IS NOT NULL
-           AND t.paid_at >= $3::timestamptz AND t.paid_at < $4::timestamptz
-           AND t.sale_point_id = ANY($2::uuid[])
+           AND t.paid_at >= $2::timestamptz AND t.paid_at < $3::timestamptz
+           AND t.sale_point_id = ANY($1::uuid[])
           THEN t.paid_prize ELSE 0 END), 0)::bigint AS paid
       FROM games g
       LEFT JOIN tickets t ON t.game_id = g.id
       GROUP BY g.id, g.name, g.order_index
       ORDER BY g.order_index ASC
       `,
-      [BUSINESS_TZ, scope, ranges.from, ranges.to],
+      [scope, ranges.from, ranges.to],
     );
     return rows.map((r) => ({
       gameId: r.id,
@@ -491,16 +614,16 @@ export class GetDashboardSummary
       LEFT JOIN tickets t
         ON t.seller_id = u.id
        AND t.status = 'valid'
-       AND t.created_at >= $3::timestamptz AND t.created_at < $4::timestamptz
-       AND t.sale_point_id = ANY($2::uuid[])
+       AND t.created_at >= $2::timestamptz AND t.created_at < $3::timestamptz
+       AND t.sale_point_id = ANY($1::uuid[])
       WHERE u.role = 'seller'
-        AND u.sale_point_id = ANY($2::uuid[])
+        AND u.sale_point_id = ANY($1::uuid[])
       GROUP BY u.id, u.name
       HAVING COALESCE(SUM(t.total), 0) > 0
       ORDER BY amount DESC
       LIMIT 5
       `,
-      [BUSINESS_TZ, scope, ranges.from, ranges.to],
+      [scope, ranges.from, ranges.to],
     );
     return rows.map((r) => ({
       id: r.id,
@@ -527,14 +650,14 @@ export class GetDashboardSummary
       LEFT JOIN tickets t
         ON t.sale_point_id = sp.id
        AND t.status = 'valid'
-       AND t.created_at >= $3::timestamptz AND t.created_at < $4::timestamptz
-      WHERE sp.id = ANY($2::uuid[])
+       AND t.created_at >= $2::timestamptz AND t.created_at < $3::timestamptz
+      WHERE sp.id = ANY($1::uuid[])
       GROUP BY sp.id, sp.name
       HAVING COALESCE(SUM(t.total), 0) > 0
       ORDER BY amount DESC
       LIMIT 5
       `,
-      [BUSINESS_TZ, scope, ranges.from, ranges.to],
+      [scope, ranges.from, ranges.to],
     );
     return rows.map((r) => ({
       id: r.id,
