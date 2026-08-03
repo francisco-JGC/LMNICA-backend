@@ -24,26 +24,45 @@ const MONTH_LABELS = [
   'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
 ] as const;
 
+/** Managua es UTC-6 fijo (sin DST). Ver `BusinessTime` helper. */
+const BUSINESS_TZ_OFFSET_HOURS = -6;
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
 export interface DashboardSummaryInput {
   requesterId: string;
   requesterRole: UserRole;
+  /** Inicio del rango a resumir (inclusive). Default = medianoche de hoy en Managua. */
+  from?: Date;
+  /** Fin del rango a resumir (exclusive-ish, inclusivo hasta 23:59:59). Default = fin del día de hoy. */
+  to?: Date;
 }
 
 /** Scope of ACTIVE sale_points visible to the requester (never null). */
 type SalePointScope = string[];
 
+/**
+ * Rango efectivo resuelto: [from, to) para la ventana pedida y su
+ * equivalente previo inmediato para calcular deltas.
+ */
+interface Ranges {
+  from: Date;
+  to: Date;
+  prevFrom: Date;
+  prevTo: Date;
+}
+
 const EMPTY_SUMMARY: DashboardSummaryOutput = {
-  billedToday: 0,
-  paidToday: 0,
-  wonToday: 0,
-  profitToday: 0,
-  ticketsToday: 0,
-  averageTicketToday: 0,
-  billedYesterday: 0,
-  paidYesterday: 0,
-  wonYesterday: 0,
-  profitYesterday: 0,
-  ticketsYesterday: 0,
+  billed: 0,
+  paid: 0,
+  won: 0,
+  profit: 0,
+  tickets: 0,
+  averageTicket: 0,
+  billedPrev: 0,
+  paidPrev: 0,
+  wonPrev: 0,
+  profitPrev: 0,
+  ticketsPrev: 0,
   weeklyBilled: 0,
   weeklyBilledPrev: 0,
   totalUsers: 0,
@@ -53,9 +72,6 @@ const EMPTY_SUMMARY: DashboardSummaryOutput = {
   topSellers: [],
   topSalePoints: [],
 };
-
-/** Managua está en UTC-6 fijo (sin DST). Ver `BusinessTime` helper. */
-const BUSINESS_TZ_OFFSET_HOURS = -6;
 
 /**
  * Aggregates the numbers powering the home dashboard.
@@ -83,6 +99,8 @@ export class GetDashboardSummary
     // Sin sucursales visibles → todo en cero, no queries.
     if (scope.length === 0) return EMPTY_SUMMARY;
 
+    const ranges = this.resolveRanges(input.from, input.to);
+
     const [
       kpis,
       wonKpis,
@@ -92,24 +110,24 @@ export class GetDashboardSummary
       topSellers,
       topSalePoints,
     ] = await Promise.all([
-      this.loadKpis(scope),
-      this.loadWonKpis(input),
+      this.loadKpis(scope, ranges),
+      this.loadWonKpis(input, ranges),
       this.loadMonthlySeries(scope),
-      this.loadGameBreakdown(scope),
+      this.loadGameBreakdown(scope, ranges),
       this.loadPendingPayouts(input),
-      this.loadTopSellers(scope),
-      this.loadTopSalePoints(scope),
+      this.loadTopSellers(scope, ranges),
+      this.loadTopSalePoints(scope, ranges),
     ]);
     // Utilidad = facturado − pérdida (pérdida = premios ganados aunque
     // no se hayan cobrado). Refleja ganancia real, no cash-flow.
-    const profitToday = kpis.billedToday - wonKpis.wonToday;
-    const profitYesterday = kpis.billedYesterday - wonKpis.wonYesterday;
+    const profit = kpis.billed - wonKpis.won;
+    const profitPrev = kpis.billedPrev - wonKpis.wonPrev;
 
     return {
       ...kpis,
       ...wonKpis,
-      profitToday,
-      profitYesterday,
+      profit,
+      profitPrev,
       monthlySeries,
       byGame,
       pendingPayouts,
@@ -118,50 +136,49 @@ export class GetDashboardSummary
     };
   }
 
-  // --- Won-by-clients KPIs --------------------------------------------------
+  // --- Ranges ---------------------------------------------------------------
 
   /**
-   * Suma de premios ganados por tickets vendidos HOY y AYER, evaluados
-   * contra los resultados registrados. Un ticket con sorteo aún sin
-   * resultado no contribuye — su premio aparecerá cuando se registre.
+   * Resuelve el rango pedido a límites concretos y calcula el período
+   * equivalente inmediato anterior. Sin `from`/`to` → hoy en Managua
+   * (00:00 a 24:00). El "prev" se computa como una ventana de la misma
+   * duración terminando justo antes de `from`.
    *
-   * Reutiliza `ListWinningTickets` para no duplicar la lógica de
-   * evaluación (exacto / fácil / premio par); esta pide dos días de
-   * tickets y hacemos el split en memoria por `createdAt`.
+   * Ejemplos:
+   *  - Solo hoy (1 día): prev = ayer.
+   *  - 3 días: prev = los 3 días previos.
+   *  - 15 días: prev = los 15 días previos.
+   *
+   * `from` se ancla al inicio del día de Managua para que un rango como
+   * "del 1 al 5" cubra completo el día 5 aunque el cliente mande
+   * `2026-01-05T00:00:00-06:00` con la ambigüedad exclusive/inclusive.
    */
-  private async loadWonKpis(
-    caller: DashboardSummaryInput,
-  ): Promise<{ wonToday: number; wonYesterday: number }> {
-    const { todayStart, todayEnd, yesterdayStart } =
-      this.businessDayBoundaries();
-
-    const winners = await this.listWinningTickets.execute({
-      requesterId: caller.requesterId,
-      requesterRole: caller.requesterRole,
-      from: yesterdayStart,
-      to: todayEnd,
-    });
-
-    let wonToday = 0;
-    let wonYesterday = 0;
-    for (const w of winners) {
-      const createdAt = new Date(w.ticket.createdAt);
-      if (createdAt >= todayStart && createdAt < todayEnd) {
-        wonToday += w.totalPrize;
-      } else if (createdAt >= yesterdayStart && createdAt < todayStart) {
-        wonYesterday += w.totalPrize;
-      }
+  private resolveRanges(from: Date | undefined, to: Date | undefined): Ranges {
+    if (from === undefined || to === undefined) {
+      const { todayStart, todayEnd, yesterdayStart } = this.todayBoundaries();
+      return {
+        from: todayStart,
+        to: todayEnd,
+        prevFrom: yesterdayStart,
+        prevTo: todayStart,
+      };
     }
-    return { wonToday, wonYesterday };
+    // `to` inclusivo → sumamos 1ms para tener un límite exclusivo. Si el
+    // cliente ya mandó fin de día (`23:59:59.999`), 1ms extra da el
+    // inicio del día siguiente, que es exactamente lo que queremos.
+    const inclusiveTo = new Date(to.getTime() + 1);
+    const durationMs = inclusiveTo.getTime() - from.getTime();
+    const prevTo = new Date(from.getTime());
+    const prevFrom = new Date(from.getTime() - durationMs);
+    return {
+      from,
+      to: inclusiveTo,
+      prevFrom,
+      prevTo,
+    };
   }
 
-  /**
-   * Límites hoy/ayer alineados a la medianoche de Managua expresados
-   * como instantes UTC. Mismo criterio que las queries SQL de KPIs
-   * (`(now() AT TIME ZONE 'America/Managua')::date`) pero calculado en
-   * TS para poder pasarlo a `ListWinningTickets`.
-   */
-  private businessDayBoundaries(): {
+  private todayBoundaries(): {
     todayStart: Date;
     todayEnd: Date;
     yesterdayStart: Date;
@@ -171,8 +188,8 @@ export class GetDashboardSummary
     const y = nowBiz.getUTCFullYear();
     const m = nowBiz.getUTCMonth();
     const d = nowBiz.getUTCDate();
-    // Managua midnight = UTC +6h. `Date.UTC(y, m, d, 0)` es medianoche
-    // UTC del mismo día; le sumamos 6h para llegar a medianoche Managua.
+    // Managua midnight = UTC medianoche del mismo día − offset (que es
+    // negativo, así que resta = suma 6h en UTC).
     const managuaMidnightUtcMs = (day: number) =>
       Date.UTC(y, m, day) - offsetMs;
     return {
@@ -182,15 +199,51 @@ export class GetDashboardSummary
     };
   }
 
+  // --- Won-by-clients KPIs --------------------------------------------------
+
+  /**
+   * Suma de premios ganados por tickets vendidos en el rango — y en el
+   * rango previo para la comparación. Reutiliza `ListWinningTickets`
+   * para no duplicar la lógica de evaluación (exacto / fácil / premio
+   * par); pedimos una sola vez la unión de ambos rangos y hacemos el
+   * split en memoria por `createdAt`.
+   */
+  private async loadWonKpis(
+    caller: DashboardSummaryInput,
+    ranges: Ranges,
+  ): Promise<{ won: number; wonPrev: number }> {
+    const winners = await this.listWinningTickets.execute({
+      requesterId: caller.requesterId,
+      requesterRole: caller.requesterRole,
+      from: ranges.prevFrom,
+      to: ranges.to,
+    });
+
+    let won = 0;
+    let wonPrev = 0;
+    for (const w of winners) {
+      const createdAt = new Date(w.ticket.createdAt);
+      if (createdAt >= ranges.from && createdAt < ranges.to) {
+        won += w.totalPrize;
+      } else if (createdAt >= ranges.prevFrom && createdAt < ranges.prevTo) {
+        wonPrev += w.totalPrize;
+      }
+    }
+    return { won, wonPrev };
+  }
+
   // --- KPIs -----------------------------------------------------------------
 
-  private async loadKpis(scope: SalePointScope): Promise<
+  private async loadKpis(
+    scope: SalePointScope,
+    ranges: Ranges,
+  ): Promise<
     Omit<
       DashboardSummaryOutput,
-      | 'wonToday'
-      | 'wonYesterday'
-      | 'profitToday'
-      | 'profitYesterday'
+      | 'won'
+      | 'wonPrev'
+      | 'profit'
+      | 'profitPrev'
       | 'monthlySeries'
       | 'byGame'
       | 'pendingPayouts'
@@ -198,50 +251,48 @@ export class GetDashboardSummary
       | 'topSalePoints'
     >
   > {
+    // La ventana semanal es fija: últimos 7 días vs los 7 previos.
+    // No depende del rango que eligió el usuario — es su propia métrica.
     const rows = await this.dataSource.query<
       Array<{
-        billed_today: string;
-        paid_today: string;
-        tickets_today: string;
-        billed_yesterday: string;
-        paid_yesterday: string;
-        tickets_yesterday: string;
+        billed: string;
+        paid: string;
+        tickets: string;
+        billed_prev: string;
+        paid_prev: string;
+        tickets_prev: string;
         weekly_billed: string;
         weekly_billed_prev: string;
         total_users: string;
       }>
     >(
-      // All "today" / "yesterday" boundaries are computed in BUSINESS_TZ so
-      // the dashboard aligns with schedule cutoffs (which are also wall-clock
-      // in that zone). `$2` is the partner scope: NULL means "no filter"
-      // (admin); a uuid[] restricts to the caller's sucursales.
       `
       SELECT
         COALESCE(SUM(CASE
           WHEN t.status = 'valid'
-           AND (t.created_at AT TIME ZONE $1)::date = (now() AT TIME ZONE $1)::date
-          THEN t.total ELSE 0 END), 0)::bigint AS billed_today,
+           AND t.created_at >= $3::timestamptz AND t.created_at < $4::timestamptz
+          THEN t.total ELSE 0 END), 0)::bigint AS billed,
         COALESCE(SUM(CASE
           WHEN t.paid_at IS NOT NULL
-           AND (t.paid_at AT TIME ZONE $1)::date = (now() AT TIME ZONE $1)::date
-          THEN t.paid_prize ELSE 0 END), 0)::bigint AS paid_today,
+           AND t.paid_at >= $3::timestamptz AND t.paid_at < $4::timestamptz
+          THEN t.paid_prize ELSE 0 END), 0)::bigint AS paid,
         COALESCE(SUM(CASE
           WHEN t.status = 'valid'
-           AND (t.created_at AT TIME ZONE $1)::date = (now() AT TIME ZONE $1)::date
-          THEN 1 ELSE 0 END), 0)::bigint AS tickets_today,
+           AND t.created_at >= $3::timestamptz AND t.created_at < $4::timestamptz
+          THEN 1 ELSE 0 END), 0)::bigint AS tickets,
 
         COALESCE(SUM(CASE
           WHEN t.status = 'valid'
-           AND (t.created_at AT TIME ZONE $1)::date = (now() AT TIME ZONE $1)::date - 1
-          THEN t.total ELSE 0 END), 0)::bigint AS billed_yesterday,
+           AND t.created_at >= $5::timestamptz AND t.created_at < $6::timestamptz
+          THEN t.total ELSE 0 END), 0)::bigint AS billed_prev,
         COALESCE(SUM(CASE
           WHEN t.paid_at IS NOT NULL
-           AND (t.paid_at AT TIME ZONE $1)::date = (now() AT TIME ZONE $1)::date - 1
-          THEN t.paid_prize ELSE 0 END), 0)::bigint AS paid_yesterday,
+           AND t.paid_at >= $5::timestamptz AND t.paid_at < $6::timestamptz
+          THEN t.paid_prize ELSE 0 END), 0)::bigint AS paid_prev,
         COALESCE(SUM(CASE
           WHEN t.status = 'valid'
-           AND (t.created_at AT TIME ZONE $1)::date = (now() AT TIME ZONE $1)::date - 1
-          THEN 1 ELSE 0 END), 0)::bigint AS tickets_yesterday,
+           AND t.created_at >= $5::timestamptz AND t.created_at < $6::timestamptz
+          THEN 1 ELSE 0 END), 0)::bigint AS tickets_prev,
 
         COALESCE(SUM(CASE
           WHEN t.status = 'valid'
@@ -260,29 +311,28 @@ export class GetDashboardSummary
       FROM tickets t
       WHERE t.sale_point_id = ANY($2::uuid[])
       `,
-      [BUSINESS_TZ, scope],
+      [BUSINESS_TZ, scope, ranges.from, ranges.to, ranges.prevFrom, ranges.prevTo],
     );
     const row = rows[0];
-    const billedToday = Number(row?.billed_today ?? 0);
-    const paidToday = Number(row?.paid_today ?? 0);
-    const ticketsToday = Number(row?.tickets_today ?? 0);
-    const billedYesterday = Number(row?.billed_yesterday ?? 0);
-    const paidYesterday = Number(row?.paid_yesterday ?? 0);
-    const ticketsYesterday = Number(row?.tickets_yesterday ?? 0);
-    // `profitToday` / `profitYesterday` NO se calculan acá — se
-    // computan en `execute()` como `billed - won` una vez que
-    // `loadWonKpis` resuelve. Así "utilidad" refleja la ganancia real
-    // (descontando premios ganados aunque no se hayan cobrado todavía),
-    // en vez de solo el cash-flow (`billed - paid`).
+    const billed = Number(row?.billed ?? 0);
+    const paid = Number(row?.paid ?? 0);
+    const tickets = Number(row?.tickets ?? 0);
+    const billedPrev = Number(row?.billed_prev ?? 0);
+    const paidPrev = Number(row?.paid_prev ?? 0);
+    const ticketsPrev = Number(row?.tickets_prev ?? 0);
+    // `profit` / `profitPrev` NO se calculan acá — se computan en
+    // `execute()` como `billed - won` una vez que `loadWonKpis`
+    // resuelve. Así "utilidad" refleja la ganancia real (descontando
+    // premios ganados aunque no se hayan cobrado todavía), en vez de
+    // solo el cash-flow (`billed - paid`).
     return {
-      billedToday,
-      paidToday,
-      ticketsToday,
-      averageTicketToday:
-        ticketsToday === 0 ? 0 : Math.round(billedToday / ticketsToday),
-      billedYesterday,
-      paidYesterday,
-      ticketsYesterday,
+      billed,
+      paid,
+      tickets,
+      averageTicket: tickets === 0 ? 0 : Math.round(billed / tickets),
+      billedPrev,
+      paidPrev,
+      ticketsPrev,
       weeklyBilled: Number(row?.weekly_billed ?? 0),
       weeklyBilledPrev: Number(row?.weekly_billed_prev ?? 0),
       totalUsers: Number(row?.total_users ?? 0),
@@ -294,6 +344,8 @@ export class GetDashboardSummary
   private async loadMonthlySeries(
     scope: SalePointScope,
   ): Promise<DashboardSummaryOutput['monthlySeries']> {
+    // Serie histórica — no depende del rango elegido. Muestra siempre
+    // los últimos N meses para dar contexto al KPI del rango.
     const rows = await this.dataSource.query<
       Array<{ month_start: Date; billed: string; paid: string }>
     >(
@@ -342,6 +394,7 @@ export class GetDashboardSummary
 
   private async loadGameBreakdown(
     scope: SalePointScope,
+    ranges: Ranges,
   ): Promise<DashboardSummaryOutput['byGame']> {
     const rows = await this.dataSource.query<
       Array<{ id: string; name: string; billed: string; paid: string }>
@@ -352,12 +405,12 @@ export class GetDashboardSummary
         g.name,
         COALESCE(SUM(CASE
           WHEN t.status = 'valid'
-           AND (t.created_at AT TIME ZONE $1)::date >= (now() AT TIME ZONE $1)::date - 6
+           AND t.created_at >= $3::timestamptz AND t.created_at < $4::timestamptz
            AND t.sale_point_id = ANY($2::uuid[])
           THEN t.total ELSE 0 END), 0)::bigint AS billed,
         COALESCE(SUM(CASE
           WHEN t.paid_at IS NOT NULL
-           AND (t.paid_at AT TIME ZONE $1)::date >= (now() AT TIME ZONE $1)::date - 6
+           AND t.paid_at >= $3::timestamptz AND t.paid_at < $4::timestamptz
            AND t.sale_point_id = ANY($2::uuid[])
           THEN t.paid_prize ELSE 0 END), 0)::bigint AS paid
       FROM games g
@@ -365,7 +418,7 @@ export class GetDashboardSummary
       GROUP BY g.id, g.name, g.order_index
       ORDER BY g.order_index ASC
       `,
-      [BUSINESS_TZ, scope],
+      [BUSINESS_TZ, scope, ranges.from, ranges.to],
     );
     return rows.map((r) => ({
       gameId: r.id,
@@ -380,20 +433,19 @@ export class GetDashboardSummary
   private async loadPendingPayouts(
     caller: DashboardSummaryInput,
   ): Promise<DashboardSummaryOutput['pendingPayouts']> {
-    // Reuse the shared evaluator so the matching rules stay in a single
-    // place — no duplicated three_digit "F" logic in SQL. Passing the
-    // real caller lets ListWinningTickets apply partner scoping.
+    // Pagos pendientes = quiénes me deben pagar → NO se filtra por el
+    // rango elegido. Siempre miramos los últimos 30 días para tener el
+    // panorama completo de obligaciones abiertas.
     const winners = await this.listWinningTickets.execute({
       requesterId: caller.requesterId,
       requesterRole: caller.requesterRole,
-      from: new Date(Date.now() - 30 * 24 * 60 * 60_000),
+      from: new Date(Date.now() - 30 * MS_PER_DAY),
       to: new Date(),
     });
     const unpaid = winners.filter((w) => w.ticket.paidAt === null);
     let total = 0;
     for (const w of unpaid) total += w.totalPrize;
 
-    // Preview: most recent 4 unpaid winners, with game name resolved.
     unpaid.sort(
       (a, b) =>
         new Date(b.ticket.drawAt).getTime() -
@@ -424,6 +476,7 @@ export class GetDashboardSummary
 
   private async loadTopSellers(
     scope: SalePointScope,
+    ranges: Ranges,
   ): Promise<RankingItem[]> {
     const rows = await this.dataSource.query<
       Array<{ id: string; name: string; amount: string; ticket_count: string }>
@@ -438,7 +491,7 @@ export class GetDashboardSummary
       LEFT JOIN tickets t
         ON t.seller_id = u.id
        AND t.status = 'valid'
-       AND (t.created_at AT TIME ZONE $1)::date = (now() AT TIME ZONE $1)::date
+       AND t.created_at >= $3::timestamptz AND t.created_at < $4::timestamptz
        AND t.sale_point_id = ANY($2::uuid[])
       WHERE u.role = 'seller'
         AND u.sale_point_id = ANY($2::uuid[])
@@ -447,7 +500,7 @@ export class GetDashboardSummary
       ORDER BY amount DESC
       LIMIT 5
       `,
-      [BUSINESS_TZ, scope],
+      [BUSINESS_TZ, scope, ranges.from, ranges.to],
     );
     return rows.map((r) => ({
       id: r.id,
@@ -459,6 +512,7 @@ export class GetDashboardSummary
 
   private async loadTopSalePoints(
     scope: SalePointScope,
+    ranges: Ranges,
   ): Promise<RankingItem[]> {
     const rows = await this.dataSource.query<
       Array<{ id: string; name: string; amount: string; ticket_count: string }>
@@ -473,14 +527,14 @@ export class GetDashboardSummary
       LEFT JOIN tickets t
         ON t.sale_point_id = sp.id
        AND t.status = 'valid'
-       AND (t.created_at AT TIME ZONE $1)::date = (now() AT TIME ZONE $1)::date
+       AND t.created_at >= $3::timestamptz AND t.created_at < $4::timestamptz
       WHERE sp.id = ANY($2::uuid[])
       GROUP BY sp.id, sp.name
       HAVING COALESCE(SUM(t.total), 0) > 0
       ORDER BY amount DESC
       LIMIT 5
       `,
-      [BUSINESS_TZ, scope],
+      [BUSINESS_TZ, scope, ranges.from, ranges.to],
     );
     return rows.map((r) => ({
       id: r.id,

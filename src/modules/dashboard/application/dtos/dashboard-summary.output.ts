@@ -41,35 +41,38 @@ export interface RankingItem {
 }
 
 export interface DashboardSummaryOutput {
-  // Today
-  billedToday: number;
-  paidToday: number;
+  // KPIs del rango solicitado (default = hoy en Managua).
+  billed: number;
+  paid: number;
   /**
-   * Suma de premios ganados por tickets vendidos hoy — pagados o no.
-   * Se evalúa contra los `draw_results` registrados; los tickets con
-   * sorteo pendiente contribuyen 0. Representa la "pérdida real" del
-   * día independientemente de si el ganador ya pasó a cobrar.
+   * Suma de premios ganados por tickets vendidos en el rango — pagados
+   * o no. Se evalúa contra los `draw_results` registrados; los tickets
+   * cuyo sorteo aún no tiene resultado contribuyen 0.
    */
-  wonToday: number;
-  profitToday: number;
-  ticketsToday: number;
-  averageTicketToday: number;
+  won: number;
+  /** `billed − won`. Refleja la utilidad real, no el cash-flow. */
+  profit: number;
+  tickets: number;
+  averageTicket: number;
 
-  // Yesterday (for delta calculations)
-  billedYesterday: number;
-  paidYesterday: number;
-  wonYesterday: number;
-  profitYesterday: number;
-  ticketsYesterday: number;
+  // Mismos KPIs para el período equivalente inmediato anterior — usado
+  // para calcular deltas de comparación. Si el rango son 3 días, el
+  // "prev" son los 3 días previos.
+  billedPrev: number;
+  paidPrev: number;
+  wonPrev: number;
+  profitPrev: number;
+  ticketsPrev: number;
 
-  // Weekly window (last 7 days) + previous week for comparison.
+  // Weekly window (last 7 days) + previous week for comparison —
+  // independiente del rango seleccionado.
   weeklyBilled: number;
   weeklyBilledPrev: number;
 
   // Users
   totalUsers: number;
 
-  // Rest
+  // Rest — usan el rango también.
   monthlySeries: MonthlySeriesPoint[];
   byGame: GameBreakdownItem[];
   pendingPayouts: PendingPayouts;
