@@ -52,13 +52,15 @@ export interface DashboardSummaryOutput {
   won: number;
   /**
    * `billed − won − salaries`. Utilidad real después de descontar
-   * premios adeudados a clientes Y salarios de vendedores + encargados.
+   * premios adeudados a clientes y salarios del encargado de cada
+   * sucursal.
    */
   profit: number;
   /**
-   * Suma de todos los salarios del rango:
-   *   Σ (vendedor_facturado × pct_vendedor) + Σ (sucursal_facturada × pct_encargado)
-   * Descontados en `profit` porque son costos reales.
+   * Suma de comisiones del encargado en todas las sucursales del rango:
+   *   Σ (sucursal_facturada × pct_encargado)
+   * No incluye comisiones de vendedores — esas son costo interno de
+   * la sucursal frente a su encargado, no del owner global.
    */
   salaries: number;
   tickets: number;

@@ -243,15 +243,17 @@ export class GetDashboardSummary
   // --- Salaries -------------------------------------------------------------
 
   /**
-   * Salarios totales del rango: comisiones de vendedores sobre sus
-   * propias ventas + comisiones del encargado sobre las ventas de su
-   * sucursal. Se descuentan del `profit` porque son costos reales.
+   * Salarios totales del rango: SOLO comisiones del encargado sobre las
+   * ventas de cada sucursal. Se descuentan del `profit` porque son
+   * costos reales del operativo.
    *
-   * Vendedores → `users.payment_percentage`.
-   * Encargado → `sale_points.partner_payment_percentage` (vive en la
-   * sucursal). Aplica aunque la sucursal no tenga socio asignado como
-   * encargado — el % es la política de comisión del puesto, no del
-   * usuario que lo ocupa.
+   * NO incluye comisiones de vendedores — esas son costo interno de
+   * cada sucursal frente a su encargado, no del owner global; mostrarlas
+   * acá distorsionaría la utilidad general.
+   *
+   * Fuente del %: `sale_points.partner_payment_percentage`. Aplica
+   * aunque la sucursal no tenga socio asignado como encargado — el %
+   * es política de la sucursal, no del usuario que la opera.
    */
   private async loadSalariesTotal(
     scope: SalePointScope,
@@ -259,47 +261,18 @@ export class GetDashboardSummary
   ): Promise<{ salaries: number; salariesPrev: number }> {
     const rows = await this.dataSource.query<
       Array<{
-        seller_salaries: string;
-        seller_salaries_prev: string;
         encargado_salaries: string;
         encargado_salaries_prev: string;
       }>
     >(
       `
       WITH
-        -- Vendedores en scope con % configurado.
-        sellers_pct AS (
-          SELECT u.id, u.payment_percentage AS pct
-          FROM users u
-          WHERE u.role = 'seller'
-            AND u.payment_percentage IS NOT NULL
-            AND u.sale_point_id = ANY($1::uuid[])
-        ),
         -- Sucursales en scope con % configurado.
         sucursales_pct AS (
           SELECT sp.id, sp.partner_payment_percentage AS pct
           FROM sale_points sp
           WHERE sp.id = ANY($1::uuid[])
             AND sp.partner_payment_percentage IS NOT NULL
-        ),
-        -- Facturado por vendedor (rango y prev), un solo scan sobre tickets.
-        seller_billed AS (
-          SELECT
-            t.seller_id AS id,
-            SUM(CASE
-              WHEN t.created_at >= $2::timestamptz AND t.created_at < $3::timestamptz
-              THEN t.total ELSE 0
-            END)::bigint AS billed,
-            SUM(CASE
-              WHEN t.created_at >= $4::timestamptz AND t.created_at < $5::timestamptz
-              THEN t.total ELSE 0
-            END)::bigint AS billed_prev
-          FROM tickets t
-          WHERE t.status = 'valid'
-            AND t.sale_point_id = ANY($1::uuid[])
-            AND t.created_at >= $4::timestamptz
-            AND t.created_at < $3::timestamptz
-          GROUP BY t.seller_id
         ),
         -- Facturado por sucursal (rango y prev), un solo scan.
         sucursal_billed AS (
@@ -323,14 +296,6 @@ export class GetDashboardSummary
       SELECT
         COALESCE((
           SELECT SUM(ROUND(sb.billed * s.pct / 100.0))
-          FROM sellers_pct s JOIN seller_billed sb ON sb.id = s.id
-        ), 0)::bigint AS seller_salaries,
-        COALESCE((
-          SELECT SUM(ROUND(sb.billed_prev * s.pct / 100.0))
-          FROM sellers_pct s JOIN seller_billed sb ON sb.id = s.id
-        ), 0)::bigint AS seller_salaries_prev,
-        COALESCE((
-          SELECT SUM(ROUND(sb.billed * s.pct / 100.0))
           FROM sucursales_pct s JOIN sucursal_billed sb ON sb.id = s.id
         ), 0)::bigint AS encargado_salaries,
         COALESCE((
@@ -341,12 +306,8 @@ export class GetDashboardSummary
       [scope, ranges.from, ranges.to, ranges.prevFrom, ranges.prevTo],
     );
     const row = rows[0];
-    const salaries =
-      Number(row?.seller_salaries ?? 0) +
-      Number(row?.encargado_salaries ?? 0);
-    const salariesPrev =
-      Number(row?.seller_salaries_prev ?? 0) +
-      Number(row?.encargado_salaries_prev ?? 0);
+    const salaries = Number(row?.encargado_salaries ?? 0);
+    const salariesPrev = Number(row?.encargado_salaries_prev ?? 0);
     return { salaries, salariesPrev };
   }
 
