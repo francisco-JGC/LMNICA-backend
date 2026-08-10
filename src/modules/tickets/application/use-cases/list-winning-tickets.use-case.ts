@@ -32,6 +32,8 @@ export interface ListWinningTicketsInput {
   sellerId?: string;
   from?: Date;
   to?: Date;
+  /** "HH:MM" wall clock in Managua — filter to draws at this time. */
+  drawTime?: string;
 }
 
 export interface WinningTicketOutput {
@@ -75,6 +77,7 @@ export class ListWinningTickets
       status: TicketStatus.VALID,
       from: input.from,
       to: input.to,
+      drawTime: input.drawTime,
       limit: 1000,
       offset: 0,
     });
