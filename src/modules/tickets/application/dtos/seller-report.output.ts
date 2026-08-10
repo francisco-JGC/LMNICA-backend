@@ -10,13 +10,11 @@ export interface SellerReportRow {
   sellerPhone: string | null;
   ticketCount: number;
   voidedCount: number;
-  paidCount: number;
   billed: number;
-  paidPrize: number;
   /**
-   * Total ganado por los tickets del vendedor en el rango, esté pagado o
-   * no (evaluado contra `draw_results.winning_number`). "Lo que debería
-   * entregar" en la UI. Tickets sin sorteo resuelto contribuyen 0.
+   * Total ganado por los tickets del vendedor en el rango, evaluado
+   * contra `draw_results.winning_number`. Es lo que el vendedor debe
+   * pagar a sus ganadores. Tickets sin sorteo resuelto contribuyen 0.
    */
   wonPrize: number;
   paymentPercentage: number | null;

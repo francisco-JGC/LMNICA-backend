@@ -5,6 +5,10 @@ import {
   DRAW_RESULTS_REPOSITORY,
   type DrawResultsRepository,
 } from '../../../games/domain/repositories/draw-results.repository';
+import {
+  GAMES_REPOSITORY,
+  type GamesRepository,
+} from '../../../games/domain/repositories/games.repository';
 import { PartnerScopeService } from '../../../sale-points/application/services/partner-scope.service';
 import { UserRole } from '../../../users/domain/value-objects/user-role';
 import {
@@ -13,6 +17,7 @@ import {
 } from '../../domain/repositories/tickets.repository';
 import type { TicketStatus } from '../../domain/value-objects/ticket-status';
 import { toTicketOutput, type TicketOutput } from '../dtos/ticket.output';
+import { TicketEvaluator } from '../services/ticket-evaluator.service';
 
 export interface ListTicketsInput {
   requesterId: string;
@@ -42,6 +47,8 @@ export class ListTickets implements UseCase<ListTicketsInput, ListTicketsOutput>
     @Inject(TICKETS_REPOSITORY) private readonly tickets: TicketsRepository,
     @Inject(DRAW_RESULTS_REPOSITORY)
     private readonly drawResults: DrawResultsRepository,
+    @Inject(GAMES_REPOSITORY) private readonly games: GamesRepository,
+    private readonly evaluator: TicketEvaluator,
     private readonly scope: PartnerScopeService,
   ) {}
 
@@ -80,6 +87,10 @@ export class ListTickets implements UseCase<ListTicketsInput, ListTicketsOutput>
       this.tickets.countMany(filters),
     ]);
 
+    // Fetch draw_results de cada (game, drawAt) único para saber si el
+    // sorteo ejecutó y evaluar el premio ganado. También cargamos los
+    // games para que TicketEvaluator pueda aplicar las reglas específicas
+    // del juego (exacto, fácil, premio par).
     const uniquePairs = new Map<string, { gameId: string; drawAt: Date }>();
     for (const ticket of items) {
       const key = `${ticket.gameId}|${ticket.drawAt.toISOString()}`;
@@ -87,21 +98,27 @@ export class ListTickets implements UseCase<ListTicketsInput, ListTicketsOutput>
         uniquePairs.set(key, { gameId: ticket.gameId, drawAt: ticket.drawAt });
       }
     }
-    const executedKeys = new Set<string>();
-    await Promise.all(
-      Array.from(uniquePairs.entries()).map(async ([key, pair]) => {
-        const result = await this.drawResults.findByGameAndDraw(
-          pair.gameId,
-          pair.drawAt,
-        );
-        if (result) executedKeys.add(key);
-      }),
-    );
+    const [drawByKey, gamesAll] = await Promise.all([
+      Promise.all(
+        Array.from(uniquePairs.entries()).map(async ([key, pair]) => {
+          const result = await this.drawResults.findByGameAndDraw(
+            pair.gameId,
+            pair.drawAt,
+          );
+          return [key, result] as const;
+        }),
+      ).then((entries) => new Map(entries)),
+      this.games.findAll({ onlyActive: false }),
+    ]);
+    const gameById = new Map(gamesAll.map((g) => [g.id, g]));
 
     return {
       items: items.map((ticket) => {
         const key = `${ticket.gameId}|${ticket.drawAt.toISOString()}`;
-        return toTicketOutput(ticket, executedKeys.has(key));
+        const draw = drawByKey.get(key) ?? null;
+        const game = gameById.get(ticket.gameId) ?? null;
+        const evaluation = this.evaluator.evaluateWith(ticket, game, draw);
+        return toTicketOutput(ticket, draw !== null, evaluation.totalPrize);
       }),
       page: input.page,
       limit: input.limit,

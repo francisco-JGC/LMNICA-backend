@@ -13,7 +13,7 @@ import { UserRole } from '../../../users/domain/value-objects/user-role';
 import { ListWinningTickets } from '../../../tickets/application/use-cases/list-winning-tickets.use-case';
 import type {
   DashboardSummaryOutput,
-  PendingPayoutPreview,
+  RecentWinnerPreview,
   RankingItem,
 } from '../dtos/dashboard-summary.output';
 
@@ -53,14 +53,12 @@ interface Ranges {
 
 const EMPTY_SUMMARY: DashboardSummaryOutput = {
   billed: 0,
-  paid: 0,
   won: 0,
   profit: 0,
   salaries: 0,
   tickets: 0,
   averageTicket: 0,
   billedPrev: 0,
-  paidPrev: 0,
   wonPrev: 0,
   profitPrev: 0,
   salariesPrev: 0,
@@ -70,7 +68,7 @@ const EMPTY_SUMMARY: DashboardSummaryOutput = {
   totalUsers: 0,
   monthlySeries: [],
   byGame: [],
-  pendingPayouts: { count: 0, totalAmount: 0, items: [] },
+  recentWinners: { count: 0, totalAmount: 0, items: [] },
   topSellers: [],
   topSalePoints: [],
 };
@@ -109,7 +107,7 @@ export class GetDashboardSummary
       salariesKpis,
       monthlySeries,
       byGame,
-      pendingPayouts,
+      recentWinners,
       topSellers,
       topSalePoints,
     ] = await Promise.all([
@@ -118,7 +116,7 @@ export class GetDashboardSummary
       this.loadSalariesTotal(scope, ranges),
       this.loadMonthlySeries(scope),
       this.loadGameBreakdown(scope, ranges),
-      this.loadPendingPayouts(input),
+      this.loadRecentWinners(input),
       this.loadTopSellers(scope, ranges),
       this.loadTopSalePoints(scope, ranges),
     ]);
@@ -138,7 +136,7 @@ export class GetDashboardSummary
       profitPrev,
       monthlySeries,
       byGame,
-      pendingPayouts,
+      recentWinners,
       topSellers,
       topSalePoints,
     };
@@ -327,7 +325,7 @@ export class GetDashboardSummary
       | 'salariesPrev'
       | 'monthlySeries'
       | 'byGame'
-      | 'pendingPayouts'
+      | 'recentWinners'
       | 'topSellers'
       | 'topSalePoints'
     >
@@ -337,10 +335,8 @@ export class GetDashboardSummary
     const rows = await this.dataSource.query<
       Array<{
         billed: string;
-        paid: string;
         tickets: string;
         billed_prev: string;
-        paid_prev: string;
         tickets_prev: string;
         weekly_billed: string;
         weekly_billed_prev: string;
@@ -354,10 +350,6 @@ export class GetDashboardSummary
            AND t.created_at >= $3::timestamptz AND t.created_at < $4::timestamptz
           THEN t.total ELSE 0 END), 0)::bigint AS billed,
         COALESCE(SUM(CASE
-          WHEN t.paid_at IS NOT NULL
-           AND t.paid_at >= $3::timestamptz AND t.paid_at < $4::timestamptz
-          THEN t.paid_prize ELSE 0 END), 0)::bigint AS paid,
-        COALESCE(SUM(CASE
           WHEN t.status = 'valid'
            AND t.created_at >= $3::timestamptz AND t.created_at < $4::timestamptz
           THEN 1 ELSE 0 END), 0)::bigint AS tickets,
@@ -366,10 +358,6 @@ export class GetDashboardSummary
           WHEN t.status = 'valid'
            AND t.created_at >= $5::timestamptz AND t.created_at < $6::timestamptz
           THEN t.total ELSE 0 END), 0)::bigint AS billed_prev,
-        COALESCE(SUM(CASE
-          WHEN t.paid_at IS NOT NULL
-           AND t.paid_at >= $5::timestamptz AND t.paid_at < $6::timestamptz
-          THEN t.paid_prize ELSE 0 END), 0)::bigint AS paid_prev,
         COALESCE(SUM(CASE
           WHEN t.status = 'valid'
            AND t.created_at >= $5::timestamptz AND t.created_at < $6::timestamptz
@@ -396,23 +384,17 @@ export class GetDashboardSummary
     );
     const row = rows[0];
     const billed = Number(row?.billed ?? 0);
-    const paid = Number(row?.paid ?? 0);
     const tickets = Number(row?.tickets ?? 0);
     const billedPrev = Number(row?.billed_prev ?? 0);
-    const paidPrev = Number(row?.paid_prev ?? 0);
     const ticketsPrev = Number(row?.tickets_prev ?? 0);
     // `profit` / `profitPrev` NO se calculan acá — se computan en
-    // `execute()` como `billed - won` una vez que `loadWonKpis`
-    // resuelve. Así "utilidad" refleja la ganancia real (descontando
-    // premios ganados aunque no se hayan cobrado todavía), en vez de
-    // solo el cash-flow (`billed - paid`).
+    // `execute()` como `billed - won - salaries` una vez que
+    // `loadWonKpis` y `loadSalariesTotal` resuelven.
     return {
       billed,
-      paid,
       tickets,
       averageTicket: tickets === 0 ? 0 : Math.round(billed / tickets),
       billedPrev,
-      paidPrev,
       ticketsPrev,
       weeklyBilled: Number(row?.weekly_billed ?? 0),
       weeklyBilledPrev: Number(row?.weekly_billed_prev ?? 0),
@@ -444,13 +426,7 @@ export class GetDashboardSummary
            AND (t.created_at AT TIME ZONE $1)::date >= m.month_start
            AND (t.created_at AT TIME ZONE $1)::date <  (m.month_start + INTERVAL '1 month')::date
            AND t.sale_point_id = ANY($3::uuid[])
-          THEN t.total ELSE 0 END), 0)::bigint AS billed,
-        COALESCE(SUM(CASE
-          WHEN t.paid_at IS NOT NULL
-           AND (t.paid_at AT TIME ZONE $1)::date >= m.month_start
-           AND (t.paid_at AT TIME ZONE $1)::date <  (m.month_start + INTERVAL '1 month')::date
-           AND t.sale_point_id = ANY($3::uuid[])
-          THEN t.paid_prize ELSE 0 END), 0)::bigint AS paid
+          THEN t.total ELSE 0 END), 0)::bigint AS billed
       FROM months m
       LEFT JOIN tickets t ON true
       GROUP BY m.month_start
@@ -459,6 +435,10 @@ export class GetDashboardSummary
       [BUSINESS_TZ, MONTHS_IN_SERIES, scope],
     );
 
+    // `won` requeriría evaluar tickets de 7 meses contra sus draw_results
+    // (caro para el dashboard). Por ahora devolvemos 0 — el chart solo
+    // mostraría "Facturado" como serie principal. Si se necesita "Ganado"
+    // acá, hay que agregar bulk evaluation con TicketEvaluator.
     return rows.map((r) => {
       const date = new Date(r.month_start);
       const label = MONTH_LABELS[date.getUTCMonth()] ?? '';
@@ -466,7 +446,7 @@ export class GetDashboardSummary
         monthStart: this.formatMonthStart(date),
         label,
         billed: Number(r.billed),
-        paid: Number(r.paid),
+        won: 0,
       };
     });
   }
@@ -478,7 +458,7 @@ export class GetDashboardSummary
     ranges: Ranges,
   ): Promise<DashboardSummaryOutput['byGame']> {
     const rows = await this.dataSource.query<
-      Array<{ id: string; name: string; billed: string; paid: string }>
+      Array<{ id: string; name: string; billed: string }>
     >(
       `
       SELECT
@@ -488,12 +468,7 @@ export class GetDashboardSummary
           WHEN t.status = 'valid'
            AND t.created_at >= $2::timestamptz AND t.created_at < $3::timestamptz
            AND t.sale_point_id = ANY($1::uuid[])
-          THEN t.total ELSE 0 END), 0)::bigint AS billed,
-        COALESCE(SUM(CASE
-          WHEN t.paid_at IS NOT NULL
-           AND t.paid_at >= $2::timestamptz AND t.paid_at < $3::timestamptz
-           AND t.sale_point_id = ANY($1::uuid[])
-          THEN t.paid_prize ELSE 0 END), 0)::bigint AS paid
+          THEN t.total ELSE 0 END), 0)::bigint AS billed
       FROM games g
       LEFT JOIN tickets t ON t.game_id = g.id
       GROUP BY g.id, g.name, g.order_index
@@ -501,38 +476,42 @@ export class GetDashboardSummary
       `,
       [scope, ranges.from, ranges.to],
     );
+    // `won` acá también quedaría por evaluar contra draws — como el
+    // dashboard usa esto solo para el chart "Facturación por juego",
+    // dejamos 0 y no distorsiona el gráfico principal.
     return rows.map((r) => ({
       gameId: r.id,
       gameName: r.name,
       billed: Number(r.billed),
-      paid: Number(r.paid),
+      won: 0,
     }));
   }
 
-  // --- Pending payouts ------------------------------------------------------
+  // --- Recent winners -------------------------------------------------------
 
-  private async loadPendingPayouts(
+  private async loadRecentWinners(
     caller: DashboardSummaryInput,
-  ): Promise<DashboardSummaryOutput['pendingPayouts']> {
-    // Pagos pendientes = quiénes me deben pagar → NO se filtra por el
-    // rango elegido. Siempre miramos los últimos 30 días para tener el
-    // panorama completo de obligaciones abiertas.
+  ): Promise<DashboardSummaryOutput['recentWinners']> {
+    // Panorama de ganadores recientes → NO se filtra por el rango
+    // seleccionado. Siempre miramos los últimos 30 días. Antes acá se
+    // filtraba `paidAt === null` para mostrar solo "pendientes de pago";
+    // con la eliminación del concepto de pago, ahora se listan todos.
     const winners = await this.listWinningTickets.execute({
       requesterId: caller.requesterId,
       requesterRole: caller.requesterRole,
       from: new Date(Date.now() - 30 * MS_PER_DAY),
       to: new Date(),
     });
-    const unpaid = winners.filter((w) => w.ticket.paidAt === null);
-    let total = 0;
-    for (const w of unpaid) total += w.totalPrize;
 
-    unpaid.sort(
+    let total = 0;
+    for (const w of winners) total += w.totalPrize;
+
+    winners.sort(
       (a, b) =>
         new Date(b.ticket.drawAt).getTime() -
         new Date(a.ticket.drawAt).getTime(),
     );
-    const preview = unpaid.slice(0, 4);
+    const preview = winners.slice(0, 4);
     const gameIds = Array.from(new Set(preview.map((w) => w.ticket.gameId)));
     const games = await Promise.all(
       gameIds.map((id) => this.games.findById(id)),
@@ -540,7 +519,7 @@ export class GetDashboardSummary
     const gameNameById = new Map<string, string>();
     for (const g of games) if (g) gameNameById.set(g.id, g.name);
 
-    const items: PendingPayoutPreview[] = preview.map((w) => ({
+    const items: RecentWinnerPreview[] = preview.map((w) => ({
       ticketId: w.ticket.id,
       folio: w.ticket.folio,
       gameId: w.ticket.gameId,
@@ -550,7 +529,7 @@ export class GetDashboardSummary
       client: w.ticket.client,
     }));
 
-    return { count: unpaid.length, totalAmount: total, items };
+    return { count: winners.length, totalAmount: total, items };
   }
 
   // --- Top sellers / sale points --------------------------------------------

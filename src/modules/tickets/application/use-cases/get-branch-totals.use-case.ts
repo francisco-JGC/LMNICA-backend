@@ -4,6 +4,14 @@ import { DataSource } from 'typeorm';
 
 import type { UseCase } from '../../../../shared/application/use-case';
 import {
+  DRAW_RESULTS_REPOSITORY,
+  type DrawResultsRepository,
+} from '../../../games/domain/repositories/draw-results.repository';
+import {
+  GAMES_REPOSITORY,
+  type GamesRepository,
+} from '../../../games/domain/repositories/games.repository';
+import {
   SALE_POINTS_REPOSITORY,
   type SalePointsRepository,
 } from '../../../sale-points/domain/repositories/sale-points.repository';
@@ -17,6 +25,12 @@ import type {
   BranchTotalsOutput,
   BranchTotalsRow,
 } from '../dtos/branch-totals.output';
+import {
+  TICKETS_REPOSITORY,
+  type TicketsRepository,
+} from '../../domain/repositories/tickets.repository';
+import { TicketStatus } from '../../domain/value-objects/ticket-status';
+import { TicketEvaluator } from '../services/ticket-evaluator.service';
 
 export interface GetBranchTotalsInput {
   requesterId: string;
@@ -30,9 +44,7 @@ interface RawRow {
   sale_point_id: string;
   ticket_count: string;
   voided_count: string;
-  paid_count: string;
   billed: string;
-  paid_prize: string;
 }
 
 /**
@@ -49,6 +61,12 @@ export class GetBranchTotals
     @Inject(SALE_POINTS_REPOSITORY)
     private readonly salePoints: SalePointsRepository,
     @Inject(USERS_REPOSITORY) private readonly users: UsersRepository,
+    @Inject(TICKETS_REPOSITORY)
+    private readonly tickets: TicketsRepository,
+    @Inject(GAMES_REPOSITORY) private readonly games: GamesRepository,
+    @Inject(DRAW_RESULTS_REPOSITORY)
+    private readonly drawResults: DrawResultsRepository,
+    private readonly evaluator: TicketEvaluator,
     private readonly scope: PartnerScopeService,
   ) {}
 
@@ -71,9 +89,7 @@ export class GetBranchTotals
         t.sale_point_id::text AS sale_point_id,
         COALESCE(SUM(CASE WHEN t.status = 'valid'  THEN 1 ELSE 0 END), 0)::bigint AS ticket_count,
         COALESCE(SUM(CASE WHEN t.status = 'voided' THEN 1 ELSE 0 END), 0)::bigint AS voided_count,
-        COALESCE(SUM(CASE WHEN t.paid_at IS NOT NULL THEN 1 ELSE 0 END), 0)::bigint AS paid_count,
-        COALESCE(SUM(CASE WHEN t.status = 'valid' THEN t.total ELSE 0 END), 0)::bigint AS billed,
-        COALESCE(SUM(CASE WHEN t.paid_at IS NOT NULL THEN t.paid_prize ELSE 0 END), 0)::bigint AS paid_prize
+        COALESCE(SUM(CASE WHEN t.status = 'valid' THEN t.total ELSE 0 END), 0)::bigint AS billed
       FROM tickets t
       WHERE ($1::uuid IS NULL OR t.game_id = $1::uuid)
         AND ($2::timestamptz IS NULL OR t.created_at >= $2::timestamptz)
@@ -90,6 +106,16 @@ export class GetBranchTotals
     );
 
     if (rows.length === 0) return { items: [] };
+
+    // Computo wonPrize por sucursal evaluando cada ticket válido contra
+    // su draw_result. Reemplaza el viejo paidPrize (que dependía de que
+    // alguien marcara el ticket como pagado; ese concepto se eliminó).
+    const wonBySalePoint = await this.computeWonBySalePoint({
+      gameId: input.gameId,
+      salePointIds: partnerScope,
+      from: input.from,
+      to: input.to,
+    });
 
     // Bulk-resolve sucursal names + owner partner names.
     const salePointIds = rows.map((r) => r.sale_point_id);
@@ -116,7 +142,7 @@ export class GetBranchTotals
     const items: BranchTotalsRow[] = rows.map((r) => {
       const sp = salePointById.get(r.sale_point_id);
       const billed = Number(r.billed);
-      const paidPrize = Number(r.paid_prize);
+      const wonPrize = wonBySalePoint.get(r.sale_point_id) ?? 0;
       return {
         salePointId: r.sale_point_id,
         salePointName: sp?.name ?? '—',
@@ -126,15 +152,65 @@ export class GetBranchTotals
           : null,
         ticketCount: Number(r.ticket_count),
         voidedCount: Number(r.voided_count),
-        paidCount: Number(r.paid_count),
         billed,
-        paidPrize,
-        net: billed - paidPrize,
+        wonPrize,
+        net: billed - wonPrize,
       };
     });
 
     // Highest revenue first — matches the read order for a Sunday close-out.
     items.sort((a, b) => b.billed - a.billed);
     return { items };
+  }
+
+  /**
+   * Evalúa tickets `valid` del rango contra sus draw_results y devuelve
+   * `salePointId -> totalWonPrize`. Un ticket sin sorteo resuelto aún
+   * contribuye 0. Mismo patrón que `GetMovementsBalance.computeWonBySalePoint`.
+   */
+  private async computeWonBySalePoint(filters: {
+    gameId?: string;
+    salePointIds: string[];
+    from?: Date;
+    to?: Date;
+  }): Promise<Map<string, number>> {
+    const tickets = await this.tickets.findMany({
+      status: TicketStatus.VALID,
+      gameId: filters.gameId,
+      salePointIds: filters.salePointIds,
+      from: filters.from,
+      to: filters.to,
+      limit: 100_000,
+      offset: 0,
+    });
+    if (tickets.length === 0) return new Map();
+
+    let minDrawAt = tickets[0].drawAt;
+    let maxDrawAt = tickets[0].drawAt;
+    for (const t of tickets) {
+      if (t.drawAt < minDrawAt) minDrawAt = t.drawAt;
+      if (t.drawAt > maxDrawAt) maxDrawAt = t.drawAt;
+    }
+
+    const [draws, gamesAll] = await Promise.all([
+      this.drawResults.findMany({ from: minDrawAt, to: maxDrawAt }),
+      this.games.findAll({ onlyActive: false }),
+    ]);
+    const drawByKey = new Map(
+      draws.map((d) => [`${d.gameId}|${d.drawAt.toISOString()}`, d]),
+    );
+    const gameById = new Map(gamesAll.map((g) => [g.id, g]));
+
+    const won = new Map<string, number>();
+    for (const t of tickets) {
+      const game = gameById.get(t.gameId) ?? null;
+      const key = `${t.gameId}|${t.drawAt.toISOString()}`;
+      const draw = drawByKey.get(key) ?? null;
+      const ev = this.evaluator.evaluateWith(t, game, draw);
+      if (ev.totalPrize > 0) {
+        won.set(t.salePointId, (won.get(t.salePointId) ?? 0) + ev.totalPrize);
+      }
+    }
+    return won;
   }
 }

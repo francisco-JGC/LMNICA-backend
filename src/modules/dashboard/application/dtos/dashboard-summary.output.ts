@@ -5,18 +5,22 @@ export interface MonthlySeriesPoint {
   label: string;
   /** Total billed (tickets.total) for that month, excluding voided tickets. */
   billed: number;
-  /** Total paid (tickets.paid_prize) for that month. */
-  paid: number;
+  /**
+   * Total ganado (evaluado contra draw_results) para ese mes.
+   * Reemplaza el viejo `paid` (dependía del flag "paid_at", ya eliminado).
+   */
+  won: number;
 }
 
 export interface GameBreakdownItem {
   gameId: string;
   gameName: string;
   billed: number;
-  paid: number;
+  /** Ganado en el rango (evaluado contra draw_results). */
+  won: number;
 }
 
-export interface PendingPayoutPreview {
+export interface RecentWinnerPreview {
   ticketId: string;
   folio: string;
   gameId: string;
@@ -26,11 +30,11 @@ export interface PendingPayoutPreview {
   client: string | null;
 }
 
-export interface PendingPayouts {
+export interface RecentWinners {
   count: number;
   totalAmount: number;
-  /** Top few most-recent unpaid winners — for a preview on the dashboard. */
-  items: PendingPayoutPreview[];
+  /** Últimos ganadores del panorama de 30 días — preview para el dashboard. */
+  items: RecentWinnerPreview[];
 }
 
 export interface RankingItem {
@@ -43,11 +47,10 @@ export interface RankingItem {
 export interface DashboardSummaryOutput {
   // KPIs del rango solicitado (default = hoy en Managua).
   billed: number;
-  paid: number;
   /**
-   * Suma de premios ganados por tickets vendidos en el rango — pagados
-   * o no. Se evalúa contra los `draw_results` registrados; los tickets
-   * cuyo sorteo aún no tiene resultado contribuyen 0.
+   * Suma de premios ganados por tickets vendidos en el rango. Se evalúa
+   * contra los `draw_results` registrados; los tickets cuyo sorteo aún
+   * no tiene resultado contribuyen 0.
    */
   won: number;
   /**
@@ -70,7 +73,6 @@ export interface DashboardSummaryOutput {
   // para calcular deltas de comparación. Si el rango son 3 días, el
   // "prev" son los 3 días previos.
   billedPrev: number;
-  paidPrev: number;
   wonPrev: number;
   profitPrev: number;
   salariesPrev: number;
@@ -87,7 +89,13 @@ export interface DashboardSummaryOutput {
   // Rest — usan el rango también.
   monthlySeries: MonthlySeriesPoint[];
   byGame: GameBreakdownItem[];
-  pendingPayouts: PendingPayouts;
+  /**
+   * Ganadores recientes (últimos 30 días, no filtrado por el rango del
+   * dashboard). Antes se llamaba `pendingPayouts` y solo mostraba los
+   * unpaid — con la eliminación del concepto "pagado" ahora muestra
+   * todos los ganadores del período.
+   */
+  recentWinners: RecentWinners;
   topSellers: RankingItem[];
   topSalePoints: RankingItem[];
 }

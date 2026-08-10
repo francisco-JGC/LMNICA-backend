@@ -41,9 +41,7 @@ interface RawRow {
   seller_id: string;
   ticket_count: string;
   voided_count: string;
-  paid_count: string;
   billed: string;
-  paid_prize: string;
 }
 
 /**
@@ -89,9 +87,7 @@ export class GetSellerReport
         t.seller_id::text AS seller_id,
         COALESCE(SUM(CASE WHEN t.status = 'valid'  THEN 1 ELSE 0 END), 0)::bigint AS ticket_count,
         COALESCE(SUM(CASE WHEN t.status = 'voided' THEN 1 ELSE 0 END), 0)::bigint AS voided_count,
-        COALESCE(SUM(CASE WHEN t.paid_at IS NOT NULL THEN 1 ELSE 0 END), 0)::bigint AS paid_count,
-        COALESCE(SUM(CASE WHEN t.status = 'valid' THEN t.total ELSE 0 END), 0)::bigint AS billed,
-        COALESCE(SUM(CASE WHEN t.paid_at IS NOT NULL THEN t.paid_prize ELSE 0 END), 0)::bigint AS paid_prize
+        COALESCE(SUM(CASE WHEN t.status = 'valid' THEN t.total ELSE 0 END), 0)::bigint AS billed
       FROM tickets t
       WHERE ($1::uuid IS NULL OR t.seller_id     = $1::uuid)
         AND ($2::uuid IS NULL OR t.sale_point_id = $2::uuid)
@@ -144,9 +140,7 @@ export class GetSellerReport
         sellerPhone: seller.phone,
         ticketCount: r ? Number(r.ticket_count) : 0,
         voidedCount: r ? Number(r.voided_count) : 0,
-        paidCount: r ? Number(r.paid_count) : 0,
         billed,
-        paidPrize: r ? Number(r.paid_prize) : 0,
         wonPrize: wonBySeller.get(seller.id) ?? 0,
         paymentPercentage: pct,
         salary,

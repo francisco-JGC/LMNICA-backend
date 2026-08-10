@@ -7,9 +7,12 @@ export interface TicketsByDrawItem {
   drawAt: string;
   ticketCount: number;
   voidedCount: number;
-  paidCount: number;
   billed: number;
-  paidPrize: number;
+  /**
+   * Total ganado por los tickets del sorteo (evaluado contra el
+   * draw_result). 0 si el sorteo aún no tiene resultado registrado.
+   */
+  wonPrize: number;
   /** Winning number if the draw already has a registered result. */
   winningNumber: string | null;
 }

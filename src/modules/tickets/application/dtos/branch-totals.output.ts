@@ -1,7 +1,7 @@
 /**
- * One row per sucursal: aggregate revenue + payouts. All amounts are in
- * centavos (integer). `net = billed - paidPrize` is the amount that stays
- * with the business after paying winners.
+ * One row per sucursal: aggregate revenue + prizes owed. All amounts
+ * are in centavos (integer). `net = billed - wonPrize` is what stays
+ * with the business after covering all winners of the range.
  */
 export interface BranchTotalsRow {
   salePointId: string;
@@ -10,9 +10,13 @@ export interface BranchTotalsRow {
   ownerPartnerName: string | null;
   ticketCount: number;
   voidedCount: number;
-  paidCount: number;
   billed: number;
-  paidPrize: number;
+  /**
+   * Total premios ganados en el rango (evaluados contra draw_results),
+   * pagados o no. Antes se usaba `paidPrize`; ahora el concepto de
+   * "pago" desapareció y todo se mide contra los resultados registrados.
+   */
+  wonPrize: number;
   net: number;
 }
 

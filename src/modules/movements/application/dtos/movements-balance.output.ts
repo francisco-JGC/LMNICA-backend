@@ -6,8 +6,7 @@
  * Formula:
  *   net = billed - wonPrize - partnerSalary + deposits - withdrawals - expenses
  *
- * `wonPrize` es la deuda total con los ganadores (esté pagado o no).
- * `paidPrize` es informacional: cuánto ya salió efectivamente de caja.
+ * `wonPrize` es la deuda total con los ganadores (evaluada contra draws).
  * `partnerSalary` es el salario del encargado según el % configurado;
  * es un costo real y se descuenta del net.
  */
@@ -32,11 +31,9 @@ export interface MovementsBalanceRow {
   partnerSalary: number | null;
   /** Sum of `tickets.total` for `valid` tickets. */
   billed: number;
-  /** Sum of `tickets.paid_prize` for tickets marked as paid. Informacional. */
-  paidPrize: number;
   /**
-   * Total ganado por los tickets del rango, esté pagado o no. Se evalúa
-   * contra `draw_results.winning_number` respetando la lógica del juego
+   * Total ganado por los tickets del rango. Se evalúa contra
+   * `draw_results.winning_number` respetando la lógica del juego
    * (exacto, fácil, premio par). Tickets sin resultado registrado aún no
    * contribuyen (quedan "pending").
    */

@@ -43,7 +43,6 @@ export interface GetMovementsBalanceInput {
 interface RawRow {
   sale_point_id: string;
   billed: string;
-  paid_prize: string;
   deposits: string;
   withdrawals: string;
   expenses: string;
@@ -93,8 +92,7 @@ export class GetMovementsBalance
         ticket_flow AS (
           SELECT
             t.sale_point_id::text AS sale_point_id,
-            COALESCE(SUM(CASE WHEN t.status = 'valid' THEN t.total ELSE 0 END), 0)::bigint AS billed,
-            COALESCE(SUM(CASE WHEN t.paid_at IS NOT NULL THEN t.paid_prize ELSE 0 END), 0)::bigint AS paid_prize
+            COALESCE(SUM(CASE WHEN t.status = 'valid' THEN t.total ELSE 0 END), 0)::bigint AS billed
           FROM tickets t
           WHERE ($1::uuid IS NULL OR t.sale_point_id = $1::uuid)
             AND ($2::timestamptz IS NULL OR t.created_at >= $2::timestamptz)
@@ -118,7 +116,6 @@ export class GetMovementsBalance
       SELECT
         COALESCE(tf.sale_point_id, mf.sale_point_id) AS sale_point_id,
         COALESCE(tf.billed, 0)::bigint      AS billed,
-        COALESCE(tf.paid_prize, 0)::bigint  AS paid_prize,
         COALESCE(mf.deposits, 0)::bigint    AS deposits,
         COALESCE(mf.withdrawals, 0)::bigint AS withdrawals,
         COALESCE(mf.expenses, 0)::bigint    AS expenses
@@ -171,7 +168,6 @@ export class GetMovementsBalance
     const items: MovementsBalanceRow[] = rows.map((r) => {
       const sp = salePointById.get(r.sale_point_id);
       const billed = Number(r.billed);
-      const paidPrize = Number(r.paid_prize);
       const wonPrize = wonBySalePoint.get(r.sale_point_id) ?? 0;
       const deposits = Number(r.deposits);
       const withdrawals = Number(r.withdrawals);
@@ -205,7 +201,6 @@ export class GetMovementsBalance
         partnerPaymentPercentage: pct,
         partnerSalary,
         billed,
-        paidPrize,
         wonPrize,
         deposits,
         withdrawals,

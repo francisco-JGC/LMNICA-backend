@@ -8,9 +8,12 @@ export interface BillingByGameRow {
   gameName: string;
   ticketCount: number;
   voidedCount: number;
-  paidCount: number;
   billed: number;
-  paidPrize: number;
+  /**
+   * Total ganado por tickets en el rango (evaluado contra draw_results).
+   * Reemplaza el viejo `paidPrize` (dependía del flag paid, ya eliminado).
+   */
+  wonPrize: number;
   net: number;
   /** `billed / totalBilled` — 0 when `totalBilled` is zero. */
   share: number;
