@@ -182,9 +182,10 @@ export class GetMovementsBalance
       const pct = sp?.partnerPaymentPercentage ?? null;
       const partnerSalary =
         pct !== null ? Math.round((billed * pct) / 100) : null;
-      // Net usa `wonPrize` (deuda total con ganadores) + descuenta el
-      // salario del encargado — ambos son costos reales que reducen el
-      // dinero que efectivamente le queda al owner de la operación.
+      // Net descuenta `wonPrize` (premios de tickets que ganaron según los
+      // sorteos que ya cayeron) + salario del encargado — ambos son costos
+      // reales que reducen el dinero que le queda al owner de la operación.
+      // Tickets con sorteos pendientes contribuyen 0 a `wonPrize`.
       const net =
         billed -
         wonPrize -

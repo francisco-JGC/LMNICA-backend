@@ -5,12 +5,22 @@ import { DataSource } from 'typeorm';
 import type { UseCase } from '../../../../shared/application/use-case';
 import { BUSINESS_TZ } from '../../../../shared/domain/business-time';
 import {
+  DRAW_RESULTS_REPOSITORY,
+  type DrawResultsRepository,
+} from '../../../games/domain/repositories/draw-results.repository';
+import {
   GAMES_REPOSITORY,
   type GamesRepository,
 } from '../../../games/domain/repositories/games.repository';
 import { PartnerScopeService } from '../../../sale-points/application/services/partner-scope.service';
 import { UserRole } from '../../../users/domain/value-objects/user-role';
+import { TicketEvaluator } from '../../../tickets/application/services/ticket-evaluator.service';
 import { ListWinningTickets } from '../../../tickets/application/use-cases/list-winning-tickets.use-case';
+import {
+  TICKETS_REPOSITORY,
+  type TicketsRepository,
+} from '../../../tickets/domain/repositories/tickets.repository';
+import { TicketStatus } from '../../../tickets/domain/value-objects/ticket-status';
 import type {
   DashboardSummaryOutput,
   RecentWinnerPreview,
@@ -93,6 +103,10 @@ export class GetDashboardSummary
   constructor(
     @InjectDataSource() private readonly dataSource: DataSource,
     @Inject(GAMES_REPOSITORY) private readonly games: GamesRepository,
+    @Inject(TICKETS_REPOSITORY) private readonly tickets: TicketsRepository,
+    @Inject(DRAW_RESULTS_REPOSITORY)
+    private readonly drawResults: DrawResultsRepository,
+    private readonly evaluator: TicketEvaluator,
     private readonly listWinningTickets: ListWinningTickets,
     private readonly partnerScope: PartnerScopeService,
   ) {}
@@ -119,7 +133,7 @@ export class GetDashboardSummary
       topSalePoints,
     ] = await Promise.all([
       this.loadKpis(scope, ranges),
-      this.loadWonKpis(input, ranges),
+      this.loadWonKpis(scope, ranges),
       this.loadSalariesTotal(scope, ranges),
       this.loadMovementsFlow(scope, ranges),
       this.loadMonthlySeries(scope),
@@ -228,30 +242,71 @@ export class GetDashboardSummary
 
   /**
    * Suma de premios ganados por tickets vendidos en el rango — y en el
-   * rango previo para la comparación. Reutiliza `ListWinningTickets`
-   * para no duplicar la lógica de evaluación (exacto / fácil / premio
-   * par); pedimos una sola vez la unión de ambos rangos y hacemos el
-   * split en memoria por `createdAt`.
+   * rango previo para la comparación.
+   *
+   * Replica exactamente la lógica de `GetMovementsBalance.computeWonBySalePoint`
+   * (mismo `tickets.findMany` con límite alto + `TicketEvaluator.evaluateWith`
+   * contra draw_results) para que el "Pérdida hoy" del dashboard sea el
+   * mismo número que el "Premios ganados" del Cálculo de movimiento.
+   *
+   * Antes usábamos `ListWinningTickets` que trae con `limit: 1000` — si el
+   * rango tenía > 1000 tickets el dashboard subcontaba (bug real observado
+   * con 1817 tickets en un día). Acá usamos `100_000` como el balance.
+   *
+   * Los tickets con sorteos aún no ejecutados contribuyen 0 (el evaluator
+   * los devuelve como pendientes) — así solo se cuentan premios de los
+   * sorteos que ya cayeron, en línea con el modelo actual sin "pagado".
    */
   private async loadWonKpis(
-    caller: DashboardSummaryInput,
+    scope: SalePointScope,
     ranges: Ranges,
   ): Promise<{ won: number; wonPrev: number }> {
-    const winners = await this.listWinningTickets.execute({
-      requesterId: caller.requesterId,
-      requesterRole: caller.requesterRole,
+    const tickets = await this.tickets.findMany({
+      status: TicketStatus.VALID,
+      salePointIds: scope,
       from: ranges.prevFrom,
       to: ranges.to,
+      limit: 100_000,
+      offset: 0,
     });
+    if (tickets.length === 0) return { won: 0, wonPrev: 0 };
+
+    let minDrawMs = tickets[0].drawAt.getTime();
+    let maxDrawMs = minDrawMs;
+    for (const t of tickets) {
+      const ms = t.drawAt.getTime();
+      if (ms < minDrawMs) minDrawMs = ms;
+      if (ms > maxDrawMs) maxDrawMs = ms;
+    }
+
+    const [draws, gamesAll] = await Promise.all([
+      this.drawResults.findMany({
+        from: new Date(minDrawMs),
+        to: new Date(maxDrawMs),
+      }),
+      this.games.findAll({ onlyActive: false }),
+    ]);
+    const drawByKey = new Map(
+      draws.map((d) => [`${d.gameId}|${d.drawAt.toISOString()}`, d]),
+    );
+    const gameById = new Map(gamesAll.map((g) => [g.id, g]));
 
     let won = 0;
     let wonPrev = 0;
-    for (const w of winners) {
-      const createdAt = new Date(w.ticket.createdAt);
+    for (const t of tickets) {
+      const game = gameById.get(t.gameId) ?? null;
+      const key = `${t.gameId}|${t.drawAt.toISOString()}`;
+      const draw = drawByKey.get(key) ?? null;
+      const ev = this.evaluator.evaluateWith(t, game, draw);
+      if (ev.totalPrize <= 0) continue;
+      const createdAt = t.createdAt;
       if (createdAt >= ranges.from && createdAt < ranges.to) {
-        won += w.totalPrize;
-      } else if (createdAt >= ranges.prevFrom && createdAt < ranges.prevTo) {
-        wonPrev += w.totalPrize;
+        won += ev.totalPrize;
+      } else if (
+        createdAt >= ranges.prevFrom &&
+        createdAt < ranges.prevTo
+      ) {
+        wonPrev += ev.totalPrize;
       }
     }
     return { won, wonPrev };
