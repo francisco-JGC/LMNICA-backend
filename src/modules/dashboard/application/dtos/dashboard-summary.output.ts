@@ -54,9 +54,9 @@ export interface DashboardSummaryOutput {
    */
   won: number;
   /**
-   * `billed − won − salaries`. Utilidad real después de descontar
-   * premios adeudados a clientes y salarios del encargado de cada
-   * sucursal.
+   * `billed − won − salaries + deposits − withdrawals − expenses`.
+   * Misma fórmula que el "Restante neto" del Cálculo de movimiento —
+   * refleja el efectivo real en mano después de todo el flujo del rango.
    */
   profit: number;
   /**
@@ -66,6 +66,12 @@ export interface DashboardSummaryOutput {
    * la sucursal frente a su encargado, no del owner global.
    */
   salaries: number;
+  /** Depósitos manuales registrados en el rango (movements.type='deposit'). */
+  deposits: number;
+  /** Retiros manuales registrados en el rango (movements.type='withdrawal'). */
+  withdrawals: number;
+  /** Gastos manuales registrados en el rango (movements.type='expense'). */
+  expenses: number;
   tickets: number;
   averageTicket: number;
 
@@ -76,6 +82,9 @@ export interface DashboardSummaryOutput {
   wonPrev: number;
   profitPrev: number;
   salariesPrev: number;
+  depositsPrev: number;
+  withdrawalsPrev: number;
+  expensesPrev: number;
   ticketsPrev: number;
 
   // Weekly window (last 7 days) + previous week for comparison —

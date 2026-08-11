@@ -56,12 +56,18 @@ const EMPTY_SUMMARY: DashboardSummaryOutput = {
   won: 0,
   profit: 0,
   salaries: 0,
+  deposits: 0,
+  withdrawals: 0,
+  expenses: 0,
   tickets: 0,
   averageTicket: 0,
   billedPrev: 0,
   wonPrev: 0,
   profitPrev: 0,
   salariesPrev: 0,
+  depositsPrev: 0,
+  withdrawalsPrev: 0,
+  expensesPrev: 0,
   ticketsPrev: 0,
   weeklyBilled: 0,
   weeklyBilledPrev: 0,
@@ -105,6 +111,7 @@ export class GetDashboardSummary
       kpis,
       wonKpis,
       salariesKpis,
+      movementsKpis,
       monthlySeries,
       byGame,
       recentWinners,
@@ -114,24 +121,36 @@ export class GetDashboardSummary
       this.loadKpis(scope, ranges),
       this.loadWonKpis(input, ranges),
       this.loadSalariesTotal(scope, ranges),
+      this.loadMovementsFlow(scope, ranges),
       this.loadMonthlySeries(scope),
       this.loadGameBreakdown(scope, ranges),
       this.loadRecentWinners(input),
       this.loadTopSellers(scope, ranges),
       this.loadTopSalePoints(scope, ranges),
     ]);
-    // Utilidad = facturado − pérdida − salarios. Descuenta premios
-    // adeudados a clientes Y comisiones a vendedores/encargados, que
-    // son costos reales del rango aunque no se hayan pagado.
+    // Utilidad = facturado − pérdida − salarios + depósitos − retiros − gastos.
+    // Es la MISMA fórmula que el "Restante neto" del Cálculo de movimiento
+    // para garantizar que ambas pantallas muestren el mismo número.
     const profit =
-      kpis.billed - wonKpis.won - salariesKpis.salaries;
+      kpis.billed -
+      wonKpis.won -
+      salariesKpis.salaries +
+      movementsKpis.deposits -
+      movementsKpis.withdrawals -
+      movementsKpis.expenses;
     const profitPrev =
-      kpis.billedPrev - wonKpis.wonPrev - salariesKpis.salariesPrev;
+      kpis.billedPrev -
+      wonKpis.wonPrev -
+      salariesKpis.salariesPrev +
+      movementsKpis.depositsPrev -
+      movementsKpis.withdrawalsPrev -
+      movementsKpis.expensesPrev;
 
     return {
       ...kpis,
       ...wonKpis,
       ...salariesKpis,
+      ...movementsKpis,
       profit,
       profitPrev,
       monthlySeries,
@@ -309,6 +328,82 @@ export class GetDashboardSummary
     return { salaries, salariesPrev };
   }
 
+  // --- Movements (deposits / withdrawals / expenses) -----------------------
+
+  /**
+   * Agrega los movimientos manuales del rango — usa la misma tabla y las
+   * mismas categorías que `GetMovementsBalance`, garantizando que la
+   * "Utilidad" del dashboard reconcilie con el "Restante neto" que se ve
+   * en Cálculo de movimiento.
+   *
+   * Un único query agrega rango actual + rango previo (para el delta).
+   */
+  private async loadMovementsFlow(
+    scope: SalePointScope,
+    ranges: Ranges,
+  ): Promise<{
+    deposits: number;
+    withdrawals: number;
+    expenses: number;
+    depositsPrev: number;
+    withdrawalsPrev: number;
+    expensesPrev: number;
+  }> {
+    const rows = await this.dataSource.query<
+      Array<{
+        deposits: string;
+        withdrawals: string;
+        expenses: string;
+        deposits_prev: string;
+        withdrawals_prev: string;
+        expenses_prev: string;
+      }>
+    >(
+      `
+      SELECT
+        COALESCE(SUM(CASE
+          WHEN m.type = 'deposit'
+           AND m.occurred_at >= $2::timestamptz AND m.occurred_at < $3::timestamptz
+          THEN m.amount ELSE 0 END), 0)::bigint AS deposits,
+        COALESCE(SUM(CASE
+          WHEN m.type = 'withdrawal'
+           AND m.occurred_at >= $2::timestamptz AND m.occurred_at < $3::timestamptz
+          THEN m.amount ELSE 0 END), 0)::bigint AS withdrawals,
+        COALESCE(SUM(CASE
+          WHEN m.type = 'expense'
+           AND m.occurred_at >= $2::timestamptz AND m.occurred_at < $3::timestamptz
+          THEN m.amount ELSE 0 END), 0)::bigint AS expenses,
+
+        COALESCE(SUM(CASE
+          WHEN m.type = 'deposit'
+           AND m.occurred_at >= $4::timestamptz AND m.occurred_at < $5::timestamptz
+          THEN m.amount ELSE 0 END), 0)::bigint AS deposits_prev,
+        COALESCE(SUM(CASE
+          WHEN m.type = 'withdrawal'
+           AND m.occurred_at >= $4::timestamptz AND m.occurred_at < $5::timestamptz
+          THEN m.amount ELSE 0 END), 0)::bigint AS withdrawals_prev,
+        COALESCE(SUM(CASE
+          WHEN m.type = 'expense'
+           AND m.occurred_at >= $4::timestamptz AND m.occurred_at < $5::timestamptz
+          THEN m.amount ELSE 0 END), 0)::bigint AS expenses_prev
+      FROM movements m
+      WHERE m.sale_point_id = ANY($1::uuid[])
+        AND m.occurred_at >= $4::timestamptz
+        AND m.occurred_at <  $3::timestamptz
+      `,
+      [scope, ranges.from, ranges.to, ranges.prevFrom, ranges.prevTo],
+    );
+    const row = rows[0];
+    return {
+      deposits: Number(row?.deposits ?? 0),
+      withdrawals: Number(row?.withdrawals ?? 0),
+      expenses: Number(row?.expenses ?? 0),
+      depositsPrev: Number(row?.deposits_prev ?? 0),
+      withdrawalsPrev: Number(row?.withdrawals_prev ?? 0),
+      expensesPrev: Number(row?.expenses_prev ?? 0),
+    };
+  }
+
   // --- KPIs -----------------------------------------------------------------
 
   private async loadKpis(
@@ -323,6 +418,12 @@ export class GetDashboardSummary
       | 'profitPrev'
       | 'salaries'
       | 'salariesPrev'
+      | 'deposits'
+      | 'depositsPrev'
+      | 'withdrawals'
+      | 'withdrawalsPrev'
+      | 'expenses'
+      | 'expensesPrev'
       | 'monthlySeries'
       | 'byGame'
       | 'recentWinners'
