@@ -13,6 +13,7 @@ import { CreateTicket } from './application/use-cases/create-ticket.use-case';
 import { EvaluateTicketById } from './application/use-cases/evaluate-ticket-by-id.use-case';
 import { FindTicketByFolio } from './application/use-cases/find-ticket-by-folio.use-case';
 import { FindTicketById } from './application/use-cases/find-ticket-by-id.use-case';
+import { FindTicketByIdForScan } from './application/use-cases/find-ticket-by-id-for-scan.use-case';
 import { GetBillingByGame } from './application/use-cases/get-billing-by-game.use-case';
 import { GetBranchTotals } from './application/use-cases/get-branch-totals.use-case';
 import { GetSellerReport } from './application/use-cases/get-seller-report.use-case';
@@ -50,6 +51,7 @@ import { TimestampFolioGenerator } from './infrastructure/services/timestamp-fol
     GetBranchTotals,
     GetBillingByGame,
     FindTicketById,
+    FindTicketByIdForScan,
     FindTicketByFolio,
     VoidTicket,
     TicketEvaluator,

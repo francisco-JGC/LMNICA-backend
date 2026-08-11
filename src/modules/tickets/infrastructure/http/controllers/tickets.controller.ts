@@ -15,6 +15,7 @@ import { UserRole } from '../../../../users/domain/value-objects/user-role';
 import { CreateTicket } from '../../../application/use-cases/create-ticket.use-case';
 import { FindTicketByFolio } from '../../../application/use-cases/find-ticket-by-folio.use-case';
 import { FindTicketById } from '../../../application/use-cases/find-ticket-by-id.use-case';
+import { FindTicketByIdForScan } from '../../../application/use-cases/find-ticket-by-id-for-scan.use-case';
 import { GetBillingByGame } from '../../../application/use-cases/get-billing-by-game.use-case';
 import { GetBranchTotals } from '../../../application/use-cases/get-branch-totals.use-case';
 import { GetSellerReport } from '../../../application/use-cases/get-seller-report.use-case';
@@ -55,6 +56,7 @@ export class TicketsController {
     private readonly getTicketsSummary: GetTicketsSummary,
     private readonly getTicketsByDraw: GetTicketsByDraw,
     private readonly findTicketById: FindTicketById,
+    private readonly findTicketByIdForScan: FindTicketByIdForScan,
     private readonly findTicketByFolio: FindTicketByFolio,
     private readonly voidTicketUseCase: VoidTicket,
     private readonly listWinningTickets: ListWinningTickets,
@@ -211,6 +213,19 @@ export class TicketsController {
     @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<EvaluateTicketByIdOutput> {
     return this.evaluateTicketById.execute(id);
+  }
+
+  /**
+   * Lookup por ID sin restricción de dueño — usado por el escáner del móvil
+   * para permitir a los vendedores escanear boletos de compañeros de sucursal
+   * o de días pasados (replicar boletos). Se requiere el ID exacto (llega
+   * por QR físico), lo que mantiene bajo el riesgo de acceso indebido.
+   */
+  @Get(':id/scan')
+  findOneForScan(
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<TicketOutput> {
+    return this.findTicketByIdForScan.execute({ id });
   }
 
   @Get(':id')
