@@ -78,7 +78,13 @@ export class ListWinningTickets
       from: input.from,
       to: input.to,
       drawTime: input.drawTime,
-      limit: 1000,
+      // Alineado con `GetMovementsBalance.computeWonBySalePoint` y
+      // `GetDashboardSummary.loadWonKpis` — cualquier valor menor causaba
+      // que la pantalla de "Boletos ganadores" mostrara un total menor
+      // al "Pérdida hoy" del dashboard cuando el rango tenía > 1000
+      // tickets (ordenado por `createdAt DESC` en `findMany`, se perdían
+      // los ganadores más viejos del rango).
+      limit: 100_000,
       offset: 0,
     });
     if (items.length === 0) return [];
