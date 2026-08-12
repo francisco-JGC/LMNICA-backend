@@ -69,4 +69,12 @@ export class CreateTicketHttpDto {
   @IsOptional()
   @IsDateString()
   drawAt?: string;
+
+  /**
+   * UUID v4 generado por el cliente para dedupear reintentos (timeout,
+   * refresh de token, doble tap). Se ignora si el cliente no lo manda.
+   */
+  @IsOptional()
+  @IsUUID()
+  clientRequestId?: string;
 }

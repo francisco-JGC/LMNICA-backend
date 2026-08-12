@@ -20,6 +20,8 @@ export interface TicketProps {
   paidAt: Date | null;
   paidById: string | null;
   paidPrize: number;
+  /** UUID generado por el cliente para dedupear reintentos (nullable). */
+  clientRequestId: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -33,6 +35,8 @@ export interface CreateTicketInput {
   lines: TicketLine[];
   drawAt: Date;
   cutoffMinutes: number;
+  /** Optional idempotency key para dedupear reintentos del cliente. */
+  clientRequestId?: string | null;
 }
 
 export class Ticket extends AggregateRoot<TicketProps> {
@@ -60,6 +64,7 @@ export class Ticket extends AggregateRoot<TicketProps> {
       paidAt: null,
       paidById: null,
       paidPrize: 0,
+      clientRequestId: input.clientRequestId ?? null,
       createdAt: now,
       updatedAt: now,
     });
@@ -123,6 +128,10 @@ export class Ticket extends AggregateRoot<TicketProps> {
 
   get paidPrize(): number {
     return this.props.paidPrize;
+  }
+
+  get clientRequestId(): string | null {
+    return this.props.clientRequestId;
   }
 
   get isPaid(): boolean {

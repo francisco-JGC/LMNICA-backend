@@ -88,6 +88,19 @@ export class CreateTicket implements UseCase<CreateTicketApplicationInput, Ticke
   ) {}
 
   async execute(input: CreateTicketApplicationInput): Promise<TicketOutput> {
+    // Idempotencia: si el cliente mandó un requestId y ya existe un ticket
+    // asociado, devolvemos ese mismo ticket. Cubre el caso "la respuesta se
+    // perdió y el vendedor volvió a tocar Enviar" — creaba dos tickets con
+    // los mismos números. Este check corre antes de cualquier validación
+    // costosa (queries de game, sale point, seller, límites) para minimizar
+    // trabajo redundante en reintentos.
+    if (input.clientRequestId) {
+      const existing = await this.tickets.findByClientRequestId(
+        input.clientRequestId,
+      );
+      if (existing) return toTicketOutput(existing);
+    }
+
     const game = await this.games.findById(input.gameId);
     if (!game) throw new NotFoundError('Game', input.gameId);
     if (!game.isActive) {
@@ -157,10 +170,37 @@ export class CreateTicket implements UseCase<CreateTicketApplicationInput, Ticke
       lines,
       drawAt: draw.drawAt,
       cutoffMinutes: draw.cutoffMinutes,
+      clientRequestId: input.clientRequestId ?? null,
     });
 
-    await this.tickets.save(ticket);
+    try {
+      await this.tickets.save(ticket);
+    } catch (err) {
+      // Race: dos requests con el mismo `clientRequestId` entraron en
+      // paralelo (ambos pasaron el lookup inicial), el segundo choca con
+      // el UNIQUE parcial. Devolvemos el ticket ganador (el primero) para
+      // que el cliente reciba una respuesta útil en vez de un 500.
+      if (input.clientRequestId && this.isDuplicateRequestIdError(err)) {
+        const existing = await this.tickets.findByClientRequestId(
+          input.clientRequestId,
+        );
+        if (existing) return toTicketOutput(existing);
+      }
+      throw err;
+    }
     return toTicketOutput(ticket);
+  }
+
+  /** Reconoce la violación del UNIQUE parcial sobre `client_request_id`. */
+  private isDuplicateRequestIdError(err: unknown): boolean {
+    if (typeof err !== 'object' || err === null) return false;
+    const anyErr = err as { code?: string; constraint?: string; message?: string };
+    // Postgres 23505 = unique_violation.
+    if (anyErr.code !== '23505') return false;
+    return (
+      anyErr.constraint === 'IDX_tickets_client_request_id' ||
+      (anyErr.message ?? '').includes('client_request_id')
+    );
   }
 
   /**

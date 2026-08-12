@@ -83,6 +83,14 @@ export class TicketOrmEntity {
   @Column({ type: 'integer', name: 'paid_prize', default: 0 })
   paidPrize!: number;
 
+  /**
+   * UUID generado por el cliente para dedupear reintentos. Índice UNIQUE
+   * parcial en la migración (`IDX_tickets_client_request_id`) — dos
+   * requests con el mismo id devuelven el mismo ticket.
+   */
+  @Column({ type: 'uuid', name: 'client_request_id', nullable: true })
+  clientRequestId!: string | null;
+
   @OneToMany(() => TicketLineOrmEntity, (line) => line.ticket, {
     cascade: true,
     eager: true,

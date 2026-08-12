@@ -20,4 +20,11 @@ export interface CreateTicketApplicationInput {
   client: string | null;
   lines: CreateTicketLineInput[];
   drawAt?: Date;
+  /**
+   * UUID v4 generado por el cliente para dedupear reintentos. Si el mismo
+   * requestId ya existe en `tickets`, `CreateTicket.execute` devuelve el
+   * ticket previo en lugar de crear un duplicado. Nullable: clientes viejos
+   * que no lo mandan siguen funcionando (sin protección de idempotencia).
+   */
+  clientRequestId?: string | null;
 }

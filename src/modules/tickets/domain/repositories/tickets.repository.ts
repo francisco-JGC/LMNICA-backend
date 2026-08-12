@@ -30,6 +30,12 @@ export interface TicketsRepository {
   save(ticket: Ticket): Promise<void>;
   findById(id: string): Promise<Ticket | null>;
   findByFolio(folio: string): Promise<Ticket | null>;
+  /**
+   * Lookup por el UUID de idempotencia enviado por el cliente. `CreateTicket`
+   * lo usa antes de crear para dedupear reintentos automáticos (timeouts,
+   * refresh de token) y toques duplicados del vendedor.
+   */
+  findByClientRequestId(clientRequestId: string): Promise<Ticket | null>;
   findMany(filters: FindTicketsFilters): Promise<Ticket[]>;
   countMany(filters: FindTicketsFilters): Promise<number>;
 }

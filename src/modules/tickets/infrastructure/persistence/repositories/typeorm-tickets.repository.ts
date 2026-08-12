@@ -48,6 +48,11 @@ export class TypeOrmTicketsRepository implements TicketsRepository {
     return found ? TicketMapper.toDomain(found) : null;
   }
 
+  async findByClientRequestId(clientRequestId: string): Promise<Ticket | null> {
+    const found = await this.repo.findOne({ where: { clientRequestId } });
+    return found ? TicketMapper.toDomain(found) : null;
+  }
+
   async findMany(filters: FindTicketsFilters): Promise<Ticket[]> {
     // Partner scoping with an empty allow-list means "nothing accessible".
     if (filters.salePointIds && filters.salePointIds.length === 0) return [];
