@@ -65,19 +65,11 @@ const EMPTY_SUMMARY: DashboardSummaryOutput = {
   billed: 0,
   won: 0,
   profit: 0,
-  salaries: 0,
-  deposits: 0,
-  withdrawals: 0,
-  expenses: 0,
   tickets: 0,
   averageTicket: 0,
   billedPrev: 0,
   wonPrev: 0,
   profitPrev: 0,
-  salariesPrev: 0,
-  depositsPrev: 0,
-  withdrawalsPrev: 0,
-  expensesPrev: 0,
   ticketsPrev: 0,
   weeklyBilled: 0,
   weeklyBilledPrev: 0,
@@ -124,8 +116,6 @@ export class GetDashboardSummary
     const [
       kpis,
       wonKpis,
-      salariesKpis,
-      movementsKpis,
       monthlySeries,
       byGame,
       recentWinners,
@@ -134,37 +124,22 @@ export class GetDashboardSummary
     ] = await Promise.all([
       this.loadKpis(scope, ranges),
       this.loadWonKpis(scope, ranges),
-      this.loadSalariesTotal(scope, ranges),
-      this.loadMovementsFlow(scope, ranges),
       this.loadMonthlySeries(scope),
       this.loadGameBreakdown(scope, ranges),
       this.loadRecentWinners(input),
       this.loadTopSellers(scope, ranges),
       this.loadTopSalePoints(scope, ranges),
     ]);
-    // Utilidad = facturado − pérdida − salarios + depósitos − retiros − gastos.
-    // Es la MISMA fórmula que el "Restante neto" del Cálculo de movimiento
-    // para garantizar que ambas pantallas muestren el mismo número.
-    const profit =
-      kpis.billed -
-      wonKpis.won -
-      salariesKpis.salaries +
-      movementsKpis.deposits -
-      movementsKpis.withdrawals -
-      movementsKpis.expenses;
-    const profitPrev =
-      kpis.billedPrev -
-      wonKpis.wonPrev -
-      salariesKpis.salariesPrev +
-      movementsKpis.depositsPrev -
-      movementsKpis.withdrawalsPrev -
-      movementsKpis.expensesPrev;
+    // Utilidad = facturado − pérdida. Deliberadamente NO incluye salarios
+    // ni movements manuales — el dashboard muestra la ganancia bruta antes
+    // de operativos y ajustes de caja. El "Restante" (post-operativos) vive
+    // en la pantalla de Cálculo de movimiento como métrica separada.
+    const profit = kpis.billed - wonKpis.won;
+    const profitPrev = kpis.billedPrev - wonKpis.wonPrev;
 
     return {
       ...kpis,
       ...wonKpis,
-      ...salariesKpis,
-      ...movementsKpis,
       profit,
       profitPrev,
       monthlySeries,
@@ -312,153 +287,6 @@ export class GetDashboardSummary
     return { won, wonPrev };
   }
 
-  // --- Salaries -------------------------------------------------------------
-
-  /**
-   * Salarios totales del rango: SOLO comisiones del encargado sobre las
-   * ventas de cada sucursal. Se descuentan del `profit` porque son
-   * costos reales del operativo.
-   *
-   * NO incluye comisiones de vendedores — esas son costo interno de
-   * cada sucursal frente a su encargado, no del owner global; mostrarlas
-   * acá distorsionaría la utilidad general.
-   *
-   * Fuente del %: `sale_points.partner_payment_percentage`. Aplica
-   * aunque la sucursal no tenga socio asignado como encargado — el %
-   * es política de la sucursal, no del usuario que la opera.
-   */
-  private async loadSalariesTotal(
-    scope: SalePointScope,
-    ranges: Ranges,
-  ): Promise<{ salaries: number; salariesPrev: number }> {
-    const rows = await this.dataSource.query<
-      Array<{
-        encargado_salaries: string;
-        encargado_salaries_prev: string;
-      }>
-    >(
-      `
-      WITH
-        -- Sucursales en scope con % configurado.
-        sucursales_pct AS (
-          SELECT sp.id, sp.partner_payment_percentage AS pct
-          FROM sale_points sp
-          WHERE sp.id = ANY($1::uuid[])
-            AND sp.partner_payment_percentage IS NOT NULL
-        ),
-        -- Facturado por sucursal (rango y prev), un solo scan.
-        sucursal_billed AS (
-          SELECT
-            t.sale_point_id AS id,
-            SUM(CASE
-              WHEN t.created_at >= $2::timestamptz AND t.created_at < $3::timestamptz
-              THEN t.total ELSE 0
-            END)::bigint AS billed,
-            SUM(CASE
-              WHEN t.created_at >= $4::timestamptz AND t.created_at < $5::timestamptz
-              THEN t.total ELSE 0
-            END)::bigint AS billed_prev
-          FROM tickets t
-          WHERE t.status = 'valid'
-            AND t.sale_point_id = ANY($1::uuid[])
-            AND t.created_at >= $4::timestamptz
-            AND t.created_at < $3::timestamptz
-          GROUP BY t.sale_point_id
-        )
-      SELECT
-        COALESCE((
-          SELECT SUM(ROUND(sb.billed * s.pct / 100.0))
-          FROM sucursales_pct s JOIN sucursal_billed sb ON sb.id = s.id
-        ), 0)::bigint AS encargado_salaries,
-        COALESCE((
-          SELECT SUM(ROUND(sb.billed_prev * s.pct / 100.0))
-          FROM sucursales_pct s JOIN sucursal_billed sb ON sb.id = s.id
-        ), 0)::bigint AS encargado_salaries_prev
-      `,
-      [scope, ranges.from, ranges.to, ranges.prevFrom, ranges.prevTo],
-    );
-    const row = rows[0];
-    const salaries = Number(row?.encargado_salaries ?? 0);
-    const salariesPrev = Number(row?.encargado_salaries_prev ?? 0);
-    return { salaries, salariesPrev };
-  }
-
-  // --- Movements (deposits / withdrawals / expenses) -----------------------
-
-  /**
-   * Agrega los movimientos manuales del rango — usa la misma tabla y las
-   * mismas categorías que `GetMovementsBalance`, garantizando que la
-   * "Utilidad" del dashboard reconcilie con el "Restante neto" que se ve
-   * en Cálculo de movimiento.
-   *
-   * Un único query agrega rango actual + rango previo (para el delta).
-   */
-  private async loadMovementsFlow(
-    scope: SalePointScope,
-    ranges: Ranges,
-  ): Promise<{
-    deposits: number;
-    withdrawals: number;
-    expenses: number;
-    depositsPrev: number;
-    withdrawalsPrev: number;
-    expensesPrev: number;
-  }> {
-    const rows = await this.dataSource.query<
-      Array<{
-        deposits: string;
-        withdrawals: string;
-        expenses: string;
-        deposits_prev: string;
-        withdrawals_prev: string;
-        expenses_prev: string;
-      }>
-    >(
-      `
-      SELECT
-        COALESCE(SUM(CASE
-          WHEN m.type = 'deposit'
-           AND m.occurred_at >= $2::timestamptz AND m.occurred_at < $3::timestamptz
-          THEN m.amount ELSE 0 END), 0)::bigint AS deposits,
-        COALESCE(SUM(CASE
-          WHEN m.type = 'withdrawal'
-           AND m.occurred_at >= $2::timestamptz AND m.occurred_at < $3::timestamptz
-          THEN m.amount ELSE 0 END), 0)::bigint AS withdrawals,
-        COALESCE(SUM(CASE
-          WHEN m.type = 'expense'
-           AND m.occurred_at >= $2::timestamptz AND m.occurred_at < $3::timestamptz
-          THEN m.amount ELSE 0 END), 0)::bigint AS expenses,
-
-        COALESCE(SUM(CASE
-          WHEN m.type = 'deposit'
-           AND m.occurred_at >= $4::timestamptz AND m.occurred_at < $5::timestamptz
-          THEN m.amount ELSE 0 END), 0)::bigint AS deposits_prev,
-        COALESCE(SUM(CASE
-          WHEN m.type = 'withdrawal'
-           AND m.occurred_at >= $4::timestamptz AND m.occurred_at < $5::timestamptz
-          THEN m.amount ELSE 0 END), 0)::bigint AS withdrawals_prev,
-        COALESCE(SUM(CASE
-          WHEN m.type = 'expense'
-           AND m.occurred_at >= $4::timestamptz AND m.occurred_at < $5::timestamptz
-          THEN m.amount ELSE 0 END), 0)::bigint AS expenses_prev
-      FROM movements m
-      WHERE m.sale_point_id = ANY($1::uuid[])
-        AND m.occurred_at >= $4::timestamptz
-        AND m.occurred_at <  $3::timestamptz
-      `,
-      [scope, ranges.from, ranges.to, ranges.prevFrom, ranges.prevTo],
-    );
-    const row = rows[0];
-    return {
-      deposits: Number(row?.deposits ?? 0),
-      withdrawals: Number(row?.withdrawals ?? 0),
-      expenses: Number(row?.expenses ?? 0),
-      depositsPrev: Number(row?.deposits_prev ?? 0),
-      withdrawalsPrev: Number(row?.withdrawals_prev ?? 0),
-      expensesPrev: Number(row?.expenses_prev ?? 0),
-    };
-  }
-
   // --- KPIs -----------------------------------------------------------------
 
   private async loadKpis(
@@ -471,14 +299,6 @@ export class GetDashboardSummary
       | 'wonPrev'
       | 'profit'
       | 'profitPrev'
-      | 'salaries'
-      | 'salariesPrev'
-      | 'deposits'
-      | 'depositsPrev'
-      | 'withdrawals'
-      | 'withdrawalsPrev'
-      | 'expenses'
-      | 'expensesPrev'
       | 'monthlySeries'
       | 'byGame'
       | 'recentWinners'
@@ -544,8 +364,7 @@ export class GetDashboardSummary
     const billedPrev = Number(row?.billed_prev ?? 0);
     const ticketsPrev = Number(row?.tickets_prev ?? 0);
     // `profit` / `profitPrev` NO se calculan acá — se computan en
-    // `execute()` como `billed - won - salaries` una vez que
-    // `loadWonKpis` y `loadSalariesTotal` resuelven.
+    // `execute()` como `billed - won` una vez que `loadWonKpis` resuelve.
     return {
       billed,
       tickets,
@@ -565,9 +384,31 @@ export class GetDashboardSummary
   ): Promise<DashboardSummaryOutput['monthlySeries']> {
     // Serie histórica — no depende del rango elegido. Muestra siempre
     // los últimos N meses para dar contexto al KPI del rango.
-    const rows = await this.dataSource.query<
-      Array<{ month_start: Date; billed: string; paid: string }>
-    >(
+    //
+    // Corre en paralelo: (1) query SQL de facturado por mes, (2) bulk
+    // fetch + evaluación de tickets para computar el `won` por mes.
+    const [billedRows, wonByMonth] = await Promise.all([
+      this.loadMonthlyBilled(scope),
+      this.loadMonthlyWon(scope),
+    ]);
+
+    return billedRows.map((r) => {
+      const date = new Date(r.month_start);
+      const label = MONTH_LABELS[date.getUTCMonth()] ?? '';
+      const monthStart = this.formatMonthStart(date);
+      return {
+        monthStart,
+        label,
+        billed: Number(r.billed),
+        won: wonByMonth.get(monthStart) ?? 0,
+      };
+    });
+  }
+
+  private async loadMonthlyBilled(
+    scope: SalePointScope,
+  ): Promise<Array<{ month_start: Date; billed: string }>> {
+    return this.dataSource.query<Array<{ month_start: Date; billed: string }>>(
       `
       WITH months AS (
         SELECT
@@ -590,21 +431,92 @@ export class GetDashboardSummary
       `,
       [BUSINESS_TZ, MONTHS_IN_SERIES, scope],
     );
+  }
 
-    // `won` requeriría evaluar tickets de 7 meses contra sus draw_results
-    // (caro para el dashboard). Por ahora devolvemos 0 — el chart solo
-    // mostraría "Facturado" como serie principal. Si se necesita "Ganado"
-    // acá, hay que agregar bulk evaluation con TicketEvaluator.
-    return rows.map((r) => {
-      const date = new Date(r.month_start);
-      const label = MONTH_LABELS[date.getUTCMonth()] ?? '';
-      return {
-        monthStart: this.formatMonthStart(date),
-        label,
-        billed: Number(r.billed),
-        won: 0,
-      };
+  /**
+   * Evalúa todos los tickets válidos de los últimos N meses contra sus
+   * draw_results y agrupa el `totalPrize` por mes (biz-tz) del `createdAt`.
+   * Mismo enfoque que `loadWonKpis` — bulk fetch + evaluator loop — para
+   * garantizar consistencia entre las métricas del rango y la serie
+   * histórica.
+   *
+   * Nota de perf: para operaciones grandes (~2000 tickets/día → 420k en 7
+   * meses) usamos `limit: 500_000`. Si en el futuro se supera, hay que
+   * dividir en queries por mes con Promise.all.
+   */
+  private async loadMonthlyWon(
+    scope: SalePointScope,
+  ): Promise<Map<string, number>> {
+    const rangeStart = this.monthStartInBiz(MONTHS_IN_SERIES - 1);
+    const tickets = await this.tickets.findMany({
+      status: TicketStatus.VALID,
+      salePointIds: scope,
+      from: rangeStart,
+      // Sin `to` → todo el histórico hasta hoy. Un ticket cuyo sorteo
+      // aún no ocurrió contribuye 0 al totalPrize (evaluator lo devuelve
+      // como pendiente).
+      limit: 500_000,
+      offset: 0,
     });
+    if (tickets.length === 0) return new Map();
+
+    let minDrawMs = tickets[0].drawAt.getTime();
+    let maxDrawMs = minDrawMs;
+    for (const t of tickets) {
+      const ms = t.drawAt.getTime();
+      if (ms < minDrawMs) minDrawMs = ms;
+      if (ms > maxDrawMs) maxDrawMs = ms;
+    }
+
+    const [draws, gamesAll] = await Promise.all([
+      this.drawResults.findMany({
+        from: new Date(minDrawMs),
+        to: new Date(maxDrawMs),
+      }),
+      this.games.findAll({ onlyActive: false }),
+    ]);
+    const drawByKey = new Map(
+      draws.map((d) => [`${d.gameId}|${d.drawAt.toISOString()}`, d]),
+    );
+    const gameById = new Map(gamesAll.map((g) => [g.id, g]));
+
+    const wonByMonth = new Map<string, number>();
+    for (const t of tickets) {
+      const game = gameById.get(t.gameId) ?? null;
+      const key = `${t.gameId}|${t.drawAt.toISOString()}`;
+      const draw = drawByKey.get(key) ?? null;
+      const ev = this.evaluator.evaluateWith(t, game, draw);
+      if (ev.totalPrize <= 0) continue;
+      const monthKey = this.monthKeyInBiz(t.createdAt);
+      wonByMonth.set(monthKey, (wonByMonth.get(monthKey) ?? 0) + ev.totalPrize);
+    }
+    return wonByMonth;
+  }
+
+  /**
+   * Devuelve el 1° del mes en Managua (como Date UTC) para el mes actual
+   * menos `monthsBack`. Ejemplo: monthsBack=0 → 2026-08-01 00:00 Managua,
+   * monthsBack=6 → 2026-02-01 00:00 Managua.
+   */
+  private monthStartInBiz(monthsBack: number): Date {
+    const offsetMs = BUSINESS_TZ_OFFSET_HOURS * 60 * 60 * 1000;
+    const nowBiz = new Date(Date.now() + offsetMs);
+    const y = nowBiz.getUTCFullYear();
+    const m = nowBiz.getUTCMonth();
+    return new Date(Date.UTC(y, m - monthsBack, 1) - offsetMs);
+  }
+
+  /**
+   * Bucket "YYYY-MM-01" del `createdAt` en biz timezone. Coincide con la
+   * clave que produce `formatMonthStart(row.month_start)` en el SQL query
+   * de facturado, así el `won` se ancla al mismo mes.
+   */
+  private monthKeyInBiz(date: Date): string {
+    const offsetMs = BUSINESS_TZ_OFFSET_HOURS * 60 * 60 * 1000;
+    const bizDate = new Date(date.getTime() + offsetMs);
+    const y = bizDate.getUTCFullYear();
+    const m = (bizDate.getUTCMonth() + 1).toString().padStart(2, '0');
+    return `${y}-${m}-01`;
   }
 
   // --- By game --------------------------------------------------------------

@@ -54,24 +54,11 @@ export interface DashboardSummaryOutput {
    */
   won: number;
   /**
-   * `billed − won − salaries + deposits − withdrawals − expenses`.
-   * Misma fórmula que el "Restante neto" del Cálculo de movimiento —
-   * refleja el efectivo real en mano después de todo el flujo del rango.
+   * Utilidad bruta = `billed − won`. Deliberadamente NO incluye salarios
+   * ni movements manuales — refleja la ganancia bruta antes de operativos.
+   * El "Restante neto" (post-operativos) se ve en Cálculo de movimiento.
    */
   profit: number;
-  /**
-   * Suma de comisiones del encargado en todas las sucursales del rango:
-   *   Σ (sucursal_facturada × pct_encargado)
-   * No incluye comisiones de vendedores — esas son costo interno de
-   * la sucursal frente a su encargado, no del owner global.
-   */
-  salaries: number;
-  /** Depósitos manuales registrados en el rango (movements.type='deposit'). */
-  deposits: number;
-  /** Retiros manuales registrados en el rango (movements.type='withdrawal'). */
-  withdrawals: number;
-  /** Gastos manuales registrados en el rango (movements.type='expense'). */
-  expenses: number;
   tickets: number;
   averageTicket: number;
 
@@ -81,10 +68,6 @@ export interface DashboardSummaryOutput {
   billedPrev: number;
   wonPrev: number;
   profitPrev: number;
-  salariesPrev: number;
-  depositsPrev: number;
-  withdrawalsPrev: number;
-  expensesPrev: number;
   ticketsPrev: number;
 
   // Weekly window (last 7 days) + previous week for comparison —
