@@ -18,6 +18,7 @@ import { FindTicketById } from '../../../application/use-cases/find-ticket-by-id
 import { FindTicketByIdForScan } from '../../../application/use-cases/find-ticket-by-id-for-scan.use-case';
 import { GetBillingByGame } from '../../../application/use-cases/get-billing-by-game.use-case';
 import { GetBranchTotals } from '../../../application/use-cases/get-branch-totals.use-case';
+import { GetSalesByNumber } from '../../../application/use-cases/get-sales-by-number.use-case';
 import { GetSellerReport } from '../../../application/use-cases/get-seller-report.use-case';
 import { GetTicketsByDraw } from '../../../application/use-cases/get-tickets-by-draw.use-case';
 import { GetTicketsSummary } from '../../../application/use-cases/get-tickets-summary.use-case';
@@ -25,6 +26,7 @@ import { ListTickets } from '../../../application/use-cases/list-tickets.use-cas
 import type { ListTicketsOutput } from '../../../application/use-cases/list-tickets.use-case';
 import type { BillingByGameOutput } from '../../../application/dtos/billing-by-game.output';
 import type { BranchTotalsOutput } from '../../../application/dtos/branch-totals.output';
+import type { SalesByNumberOutput } from '../../../application/dtos/sales-by-number.output';
 import type { SellerReportOutput } from '../../../application/dtos/seller-report.output';
 import type { TicketsByDrawOutput } from '../../../application/dtos/tickets-by-draw.output';
 import type { TicketsSummaryOutput } from '../../../application/dtos/tickets-summary.output';
@@ -45,6 +47,7 @@ import {
 import { BillingByGameQueryDto } from '../dtos/billing-by-game-query.dto';
 import { BranchTotalsQueryDto } from '../dtos/branch-totals-query.dto';
 import { ListWinnersQueryDto } from '../dtos/list-winners-query.dto';
+import { SalesByNumberQueryDto } from '../dtos/sales-by-number-query.dto';
 import { SellerReportQueryDto } from '../dtos/seller-report-query.dto';
 import { VoidTicketHttpDto } from '../dtos/void-ticket-http.dto';
 
@@ -64,6 +67,7 @@ export class TicketsController {
     private readonly getSellerReport: GetSellerReport,
     private readonly getBranchTotals: GetBranchTotals,
     private readonly getBillingByGame: GetBillingByGame,
+    private readonly getSalesByNumber: GetSalesByNumber,
   ) {}
 
   @Post()
@@ -170,6 +174,22 @@ export class TicketsController {
     @Query() query: TicketsByDrawQueryDto,
   ): Promise<TicketsByDrawOutput> {
     return this.getTicketsByDraw.execute({
+      requesterId: user.id,
+      requesterRole: user.role,
+      salePointId: query.salePointId,
+      gameId: query.gameId,
+      sellerId: query.sellerId,
+      from: query.from ? new Date(query.from) : undefined,
+      to: query.to ? new Date(query.to) : undefined,
+    });
+  }
+
+  @Get('sales-by-number')
+  salesByNumber(
+    @CurrentUser() user: RequestUser,
+    @Query() query: SalesByNumberQueryDto,
+  ): Promise<SalesByNumberOutput> {
+    return this.getSalesByNumber.execute({
       requesterId: user.id,
       requesterRole: user.role,
       salePointId: query.salePointId,

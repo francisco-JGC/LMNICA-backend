@@ -16,6 +16,7 @@ import { FindTicketById } from './application/use-cases/find-ticket-by-id.use-ca
 import { FindTicketByIdForScan } from './application/use-cases/find-ticket-by-id-for-scan.use-case';
 import { GetBillingByGame } from './application/use-cases/get-billing-by-game.use-case';
 import { GetBranchTotals } from './application/use-cases/get-branch-totals.use-case';
+import { GetSalesByNumber } from './application/use-cases/get-sales-by-number.use-case';
 import { GetSellerReport } from './application/use-cases/get-seller-report.use-case';
 import { GetTicketsByDraw } from './application/use-cases/get-tickets-by-draw.use-case';
 import { GetTicketsSummary } from './application/use-cases/get-tickets-summary.use-case';
@@ -50,6 +51,7 @@ import { TimestampFolioGenerator } from './infrastructure/services/timestamp-fol
     GetSellerReport,
     GetBranchTotals,
     GetBillingByGame,
+    GetSalesByNumber,
     FindTicketById,
     FindTicketByIdForScan,
     FindTicketByFolio,
