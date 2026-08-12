@@ -34,6 +34,10 @@ import {
   type SaleLimitsByNumberRepository,
 } from '../../../sale-limits-by-number/domain/repositories/sale-limits-by-number.repository';
 import {
+  SALE_LIMITS_BY_SELLER_NUMBER_REPOSITORY,
+  type SaleLimitsBySellerNumberRepository,
+} from '../../../sale-limits-by-seller-number/domain/repositories/sale-limits-by-seller-number.repository';
+import {
   SALE_POINTS_REPOSITORY,
   type SalePointsRepository,
 } from '../../../sale-points/domain/repositories/sale-points.repository';
@@ -80,6 +84,8 @@ export class CreateTicket implements UseCase<CreateTicketApplicationInput, Ticke
     private readonly saleLimits: SaleLimitsRepository,
     @Inject(SALE_LIMITS_BY_NUMBER_REPOSITORY)
     private readonly saleLimitsByNumber: SaleLimitsByNumberRepository,
+    @Inject(SALE_LIMITS_BY_SELLER_NUMBER_REPOSITORY)
+    private readonly sellerQuotas: SaleLimitsBySellerNumberRepository,
     @Inject(FEATURE_FLAGS_REPOSITORY)
     private readonly featureFlags: FeatureFlagsRepository,
     @Inject(FOLIO_GENERATOR) private readonly folio: FolioGenerator,
@@ -157,6 +163,7 @@ export class CreateTicket implements UseCase<CreateTicketApplicationInput, Ticke
     await this.enforceSaleLimit(
       input.gameId,
       input.salePointId,
+      input.sellerId,
       draw.drawAt,
       lines,
     );
@@ -339,11 +346,17 @@ export class CreateTicket implements UseCase<CreateTicketApplicationInput, Ticke
    * Reject the ticket if any of its lines would push a `label`'s cumulative
    * bet past the configured cap for `(game, sale_point, drawAt)`.
    *
-   * Prioridad de topes:
-   *   1. Si existe un tope específico para `(sp, game, label)` en
-   *      `sale_limits_by_number`, usa ese valor.
-   *   2. Si no, cae al tope general por `(sp, game)` en `sale_limits`.
-   *   3. Si ninguno existe para ese label, no hay tope y pasa libre.
+   * Se aplican TRES capas de topes (todas deben cumplirse):
+   *
+   *   1. **Cuota por vendedor** (`sale_limits_by_seller_number`): si el
+   *      partner asignó una cuota específica a este vendedor para este
+   *      `(game, label)`, la venta acumulada del vendedor en este sorteo
+   *      no puede exceder su cuota.
+   *   2. **Tope específico de sucursal** (`sale_limits_by_number`) o tope
+   *      general (`sale_limits`) para el label, aplicando el más
+   *      específico si existe.
+   *   3. Si un vendedor NO tiene cuota específica, sigue capado por el
+   *      tope de sucursal (comparte pool con otros no-asignados).
    *
    * El cap es por número por sorteo y se resetea automáticamente cuando
    * cambia el `draw_at`. Voided tickets nunca cuentan (anular libera).
@@ -351,6 +364,7 @@ export class CreateTicket implements UseCase<CreateTicketApplicationInput, Ticke
   private async enforceSaleLimit(
     gameId: string,
     salePointId: string,
+    sellerId: string,
     drawAt: Date,
     lines: TicketLine[],
   ): Promise<void> {
@@ -358,9 +372,6 @@ export class CreateTicket implements UseCase<CreateTicketApplicationInput, Ticke
       this.saleLimits.findByGameAndSalePoint(gameId, salePointId),
       this.saleLimitsByNumber.mapForGame(salePointId, gameId),
     ]);
-
-    // Sin tope general ni overrides → nada que validar.
-    if (!generalLimit && perNumberMap.size === 0) return;
 
     // Compound this ticket's own repeated labels into a single request.
     const requestedByLabel = new Map<string, number>();
@@ -373,11 +384,41 @@ export class CreateTicket implements UseCase<CreateTicketApplicationInput, Ticke
     const labels = Array.from(requestedByLabel.keys());
     if (labels.length === 0) return;
 
+    // Cuotas por vendedor: solo cargamos para los labels que este ticket
+    // toca (usualmente 1-5 números por ticket, así que N queries baratas
+    // encaja fine y evita traer TODAS las cuotas de la sucursal).
+    const sellerQuotasByLabel = new Map<string, number>();
+    await Promise.all(
+      labels.map(async (label) => {
+        const quota = await this.sellerQuotas.findQuotaForSeller(
+          sellerId,
+          gameId,
+          label,
+        );
+        if (quota !== null) sellerQuotasByLabel.set(label, quota);
+      }),
+    );
+
+    // Sin ningún tope aplicable → nada que validar.
+    if (
+      !generalLimit &&
+      perNumberMap.size === 0 &&
+      sellerQuotasByLabel.size === 0
+    ) {
+      return;
+    }
+
+    // Ventas acumuladas del sorteo por label — a nivel sucursal (todos los
+    // vendedores) y a nivel del vendedor actual. En un solo query trae
+    // ambas para minimizar roundtrips.
     const rows = await this.dataSource.query<
-      Array<{ label: string; sold: string }>
+      Array<{ label: string; sold_total: string; sold_seller: string }>
     >(
       `
-      SELECT tl.label, COALESCE(SUM(tl.amount), 0)::bigint AS sold
+      SELECT
+        tl.label,
+        COALESCE(SUM(tl.amount), 0)::bigint AS sold_total,
+        COALESCE(SUM(CASE WHEN t.seller_id = $5::uuid THEN tl.amount ELSE 0 END), 0)::bigint AS sold_seller
       FROM ticket_lines tl
       JOIN tickets t ON t.id = tl.ticket_id
       WHERE t.game_id = $1::uuid
@@ -387,20 +428,35 @@ export class CreateTicket implements UseCase<CreateTicketApplicationInput, Ticke
         AND tl.label = ANY($4::text[])
       GROUP BY tl.label
       `,
-      [gameId, salePointId, drawAt, labels],
+      [gameId, salePointId, drawAt, labels, sellerId],
     );
-    const soldByLabel = new Map(rows.map((r) => [r.label, Number(r.sold)]));
+    const soldByLabel = new Map(
+      rows.map((r) => [
+        r.label,
+        { total: Number(r.sold_total), bySeller: Number(r.sold_seller) },
+      ]),
+    );
 
     for (const [label, requested] of requestedByLabel) {
-      // Resuelve tope efectivo para este label. `null` significa "sin tope".
+      const sold = soldByLabel.get(label) ?? { total: 0, bySeller: 0 };
+
+      // 1. Cuota del vendedor (si existe).
+      const sellerQuota = sellerQuotasByLabel.get(label);
+      if (sellerQuota !== undefined && sold.bySeller + requested > sellerQuota) {
+        const available = Math.max(0, sellerQuota - sold.bySeller);
+        throw new ValidationError(
+          `Tu cuota para el número "${label}" es de C$${sellerQuota} en este sorteo. Disponible para vos: C$${available}.`,
+        );
+      }
+
+      // 2. Tope de sucursal (específico por número o general).
       const specific = perNumberMap.get(label);
       const effectiveLimit =
         specific !== undefined ? specific : generalLimit?.amount ?? null;
       if (effectiveLimit === null) continue;
 
-      const sold = soldByLabel.get(label) ?? 0;
-      if (sold + requested > effectiveLimit) {
-        const available = Math.max(0, effectiveLimit - sold);
+      if (sold.total + requested > effectiveLimit) {
+        const available = Math.max(0, effectiveLimit - sold.total);
         throw new ValidationError(
           `El número "${label}" alcanzó el límite de C$${effectiveLimit} para este sorteo. Disponible: C$${available}.`,
         );

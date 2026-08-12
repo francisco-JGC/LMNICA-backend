@@ -12,6 +12,7 @@ import { LuckyModule } from './modules/lucky/lucky.module';
 import { MovementsModule } from './modules/movements/movements.module';
 import { SaleLimitsModule } from './modules/sale-limits/sale-limits.module';
 import { SaleLimitsByNumberModule } from './modules/sale-limits-by-number/sale-limits-by-number.module';
+import { SaleLimitsBySellerNumberModule } from './modules/sale-limits-by-seller-number/sale-limits-by-seller-number.module';
 import { SalePointsModule } from './modules/sale-points/sale-points.module';
 import { TicketsModule } from './modules/tickets/tickets.module';
 import { UsersModule } from './modules/users/users.module';
@@ -40,6 +41,7 @@ import { DatabaseModule } from './shared/infrastructure/persistence/database.mod
     MovementsModule,
     SaleLimitsModule,
     SaleLimitsByNumberModule,
+    SaleLimitsBySellerNumberModule,
     GamePrizesModule,
     FeatureFlagsModule,
   ],
