@@ -174,16 +174,17 @@ export class Ticket extends AggregateRoot<TicketProps> {
     return (this.props.drawAt.getTime() - now.getTime()) / 60_000;
   }
 
-  void(reason: string): void {
+  void(reason: string | null): void {
     if (this.props.status === TicketStatus.VOIDED) {
       throw new ValidationError('Ticket already voided');
     }
     if (this.props.paidAt !== null) {
       throw new ValidationError('Cannot void a paid ticket');
     }
+    const cleaned = reason?.trim();
     this.props.status = TicketStatus.VOIDED;
     this.props.voidedAt = new Date();
-    this.props.voidedReason = reason;
+    this.props.voidedReason = cleaned && cleaned.length > 0 ? cleaned : null;
     this.props.updatedAt = this.props.voidedAt;
   }
 

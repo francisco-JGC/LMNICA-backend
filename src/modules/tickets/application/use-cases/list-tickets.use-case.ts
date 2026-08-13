@@ -15,7 +15,7 @@ import {
   TICKETS_REPOSITORY,
   type TicketsRepository,
 } from '../../domain/repositories/tickets.repository';
-import type { TicketStatus } from '../../domain/value-objects/ticket-status';
+import { TicketStatus } from '../../domain/value-objects/ticket-status';
 import { toTicketOutput, type TicketOutput } from '../dtos/ticket.output';
 import { TicketEvaluator } from '../services/ticket-evaluator.service';
 
@@ -30,15 +30,16 @@ export interface ListTicketsInput {
   to?: Date;
   /** "HH:MM" wall clock in Managua tz — filter to draws at this time. */
   drawTime?: string;
-  page: number;
-  limit: number;
 }
 
 export interface ListTicketsOutput {
   items: TicketOutput[];
-  page: number;
-  limit: number;
+  /** Cantidad total de items devueltos (mismo que `items.length`). */
   total: number;
+  /** Suma de `total` (facturado) de todos los items válidos. */
+  totalBilled: number;
+  /** Suma de `wonPrize` (evaluado contra draw_results) de todos los items. */
+  totalWonPrize: number;
 }
 
 @Injectable()
@@ -59,17 +60,22 @@ export class ListTickets implements UseCase<ListTicketsInput, ListTicketsOutput>
         : input.sellerId;
 
     // Partner scoping: admin sees todas las sucursales activas, partner
-    // solo las suyas, seller ya se filtró por sellerId arriba. En cualquier
-    // caso `accessibleSalePointIds` viene con las sucursales activas.
+    // solo las suyas, seller ya se filtró por sellerId arriba.
     const accessibleSalePointIds = await this.scope.getAccessibleSalePointIds(
       input.requesterId,
       input.requesterRole,
     );
     if (accessibleSalePointIds.length === 0) {
-      return { items: [], page: input.page, limit: input.limit, total: 0 };
+      return { items: [], total: 0, totalBilled: 0, totalWonPrize: 0 };
     }
 
-    const filters = {
+    // Sin paginación: devolvemos TODO el rango filtrado. El cap interno de
+    // 100k es defensivo — en operaciones reales ni el vendedor más
+    // productivo llega a decenas de miles de tickets en un rango razonable.
+    // Antes paginábamos con LIMIT en SQL y el cliente sumaba localmente,
+    // pero eso hacía que "Facturas" y "Boletos ganadores" reportaran
+    // números distintos cuando había más tickets que el limit.
+    const tickets = await this.tickets.findMany({
       sellerId: effectiveSellerId,
       salePointId: input.salePointId,
       salePointIds: accessibleSalePointIds,
@@ -78,21 +84,16 @@ export class ListTickets implements UseCase<ListTicketsInput, ListTicketsOutput>
       from: input.from,
       to: input.to,
       drawTime: input.drawTime,
-      limit: input.limit,
-      offset: (input.page - 1) * input.limit,
-    };
+      limit: 100_000,
+      offset: 0,
+    });
+    if (tickets.length === 0) {
+      return { items: [], total: 0, totalBilled: 0, totalWonPrize: 0 };
+    }
 
-    const [items, total] = await Promise.all([
-      this.tickets.findMany(filters),
-      this.tickets.countMany(filters),
-    ]);
-
-    // Fetch draw_results de cada (game, drawAt) único para saber si el
-    // sorteo ejecutó y evaluar el premio ganado. También cargamos los
-    // games para que TicketEvaluator pueda aplicar las reglas específicas
-    // del juego (exacto, fácil, premio par).
+    // Bulk load: draws únicos + games. Un solo pass sobre el set completo.
     const uniquePairs = new Map<string, { gameId: string; drawAt: Date }>();
-    for (const ticket of items) {
+    for (const ticket of tickets) {
       const key = `${ticket.gameId}|${ticket.drawAt.toISOString()}`;
       if (!uniquePairs.has(key)) {
         uniquePairs.set(key, { gameId: ticket.gameId, drawAt: ticket.drawAt });
@@ -112,17 +113,44 @@ export class ListTickets implements UseCase<ListTicketsInput, ListTicketsOutput>
     ]);
     const gameById = new Map(gamesAll.map((g) => [g.id, g]));
 
+    // Evaluate cada ticket una sola vez: acumulamos totales y armamos los
+    // items del response en el mismo loop.
+    //
+    // TICKETS ANULADOS:
+    //   - Aparecen en `items` (para que la UI los muestre con su marca de
+    //     "anulado" en la lista).
+    //   - NO cuentan en `totalBilled` — un ticket anulado no es una venta.
+    //   - NO cuentan en `totalWonPrize` — un ticket anulado no paga premio
+    //     aunque hubiera "ganado", porque fue anulado antes o después.
+    //   - El campo `wonPrize` del item anulado se fuerza a 0 (no exponemos
+    //     el "premio hipotético" que hubiera pagado si no se anulaba —
+    //     es información confusa).
+    //
+    // Con estas reglas el resultado de este endpoint concilia 1:1 con
+    // `/tickets/winners` (que filtra VALID en el query) para el mismo
+    // rango + filtros + scope.
+    let totalBilled = 0;
+    let totalWonPrize = 0;
+    const items: TicketOutput[] = [];
+    for (const ticket of tickets) {
+      const isValid = ticket.status === TicketStatus.VALID;
+      const key = `${ticket.gameId}|${ticket.drawAt.toISOString()}`;
+      const draw = drawByKey.get(key) ?? null;
+      const game = gameById.get(ticket.gameId) ?? null;
+      const evaluation = this.evaluator.evaluateWith(ticket, game, draw);
+      const wonForItem = isValid ? evaluation.totalPrize : 0;
+      if (isValid) {
+        totalBilled += ticket.total;
+        if (evaluation.totalPrize > 0) totalWonPrize += evaluation.totalPrize;
+      }
+      items.push(toTicketOutput(ticket, draw !== null, wonForItem));
+    }
+
     return {
-      items: items.map((ticket) => {
-        const key = `${ticket.gameId}|${ticket.drawAt.toISOString()}`;
-        const draw = drawByKey.get(key) ?? null;
-        const game = gameById.get(ticket.gameId) ?? null;
-        const evaluation = this.evaluator.evaluateWith(ticket, game, draw);
-        return toTicketOutput(ticket, draw !== null, evaluation.totalPrize);
-      }),
-      page: input.page,
-      limit: input.limit,
-      total,
+      items,
+      total: items.length,
+      totalBilled,
+      totalWonPrize,
     };
   }
 }

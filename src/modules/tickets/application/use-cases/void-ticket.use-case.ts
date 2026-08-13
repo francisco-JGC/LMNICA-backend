@@ -19,7 +19,11 @@ import { toTicketOutput, type TicketOutput } from '../dtos/ticket.output';
 
 export interface VoidTicketInput {
   id: string;
-  reason: string;
+  /**
+   * Motivo de la anulación — opcional. `null`/vacío se guarda como `null`
+   * en `voided_reason`. La entidad `Ticket.void` normaliza al guardar.
+   */
+  reason: string | null;
   requesterId: string;
   requesterRole: UserRole;
 }

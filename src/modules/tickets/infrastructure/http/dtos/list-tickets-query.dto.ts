@@ -1,18 +1,21 @@
-import { Type } from 'class-transformer';
 import {
   IsDateString,
   IsEnum,
-  IsInt,
   IsOptional,
   IsString,
   IsUUID,
   Matches,
-  Max,
-  Min,
 } from 'class-validator';
 
 import { TicketStatus } from '../../../domain/value-objects/ticket-status';
 
+/**
+ * Query del endpoint `GET /tickets`. Deliberadamente sin `page`/`limit`:
+ * el use-case devuelve TODO el rango filtrado (bounded internamente a
+ * 100k por seguridad). Sin paginación server-side, no hay forma de que
+ * "Facturas" y "Boletos ganadores" muestren números distintos para el
+ * mismo rango/filtros — ambos corren sobre el mismo set completo.
+ */
 export class ListTicketsQueryDto {
   @IsOptional()
   @IsUUID()
@@ -44,17 +47,4 @@ export class ListTicketsQueryDto {
     message: 'drawTime must be HH:MM in 24-hour format',
   })
   drawTime?: string;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  page: number = 1;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  @Max(1000)
-  limit: number = 20;
 }

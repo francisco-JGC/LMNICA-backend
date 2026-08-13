@@ -101,8 +101,6 @@ export class TicketsController {
       from: query.from ? new Date(query.from) : undefined,
       to: query.to ? new Date(query.to) : undefined,
       drawTime: query.drawTime,
-      page: query.page,
-      limit: query.limit,
     });
   }
 
@@ -269,7 +267,7 @@ export class TicketsController {
   ): Promise<TicketOutput> {
     return this.voidTicketUseCase.execute({
       id,
-      reason: dto.reason,
+      reason: dto.reason ?? null,
       requesterId: user.id,
       requesterRole: user.role,
     });
