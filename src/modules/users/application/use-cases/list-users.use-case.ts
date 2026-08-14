@@ -1,6 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 
 import type { UseCase } from '../../../../shared/application/use-case';
+import { PartnerScopeService } from '../../../sale-points/application/services/partner-scope.service';
 import {
   USERS_REPOSITORY,
   type UsersRepository,
@@ -28,20 +29,35 @@ export interface ListUsersOutput {
 export class ListUsers implements UseCase<ListUsersInput, ListUsersOutput> {
   constructor(
     @Inject(USERS_REPOSITORY) private readonly users: UsersRepository,
+    private readonly scope: PartnerScopeService,
   ) {}
 
   async execute(input: ListUsersInput): Promise<ListUsersOutput> {
-    // Partner scoping: partners see only users they created themselves.
-    // Admin sees everyone. Sellers never reach this endpoint (role-gated).
-    const createdById =
-      input.requesterRole === UserRole.PARTNER
-        ? input.requesterId
-        : undefined;
+    // Partner scoping: los partners ven vendedores que pertenecen a
+    // cualquiera de sus sucursales asignadas (por `sale_point_id`), no
+    // "usuarios que ellos crearon". Antes el scope era `createdById` y
+    // fallaba en el caso típico: sucursales asignadas a un partner cuyos
+    // vendedores fueron creados por el ADMIN → el partner no los veía
+    // aunque legítimamente le pertenecieran.
+    //
+    // Admin sin filtro (ve todos). Sellers nunca llegan (rol-gated).
+    let salePointIds: string[] | undefined;
+    if (input.requesterRole === UserRole.PARTNER) {
+      salePointIds = await this.scope.getAccessibleSalePointIds(
+        input.requesterId,
+        input.requesterRole,
+      );
+      // Sin sucursales asignadas → array vacío → repo devuelve [] (guard
+      // en TypeOrmUsersRepository). Coherente con "no ves nada".
+      if (salePointIds.length === 0) {
+        return { items: [], total: 0, limit: input.limit, offset: input.offset };
+      }
+    }
 
     const filters = {
       role: input.role,
       search: input.search,
-      createdById,
+      salePointIds,
       limit: input.limit,
       offset: input.offset,
     };
@@ -51,7 +67,7 @@ export class ListUsers implements UseCase<ListUsersInput, ListUsersOutput> {
       this.users.count({
         role: input.role,
         search: input.search,
-        createdById,
+        salePointIds,
       }),
     ]);
 
