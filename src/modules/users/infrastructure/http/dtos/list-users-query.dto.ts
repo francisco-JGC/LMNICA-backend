@@ -21,11 +21,17 @@ export class ListUsersQueryDto {
   @MaxLength(120)
   search?: string;
 
+  // Techo alto (1000) porque varias vistas del web filtran vendedores
+  // localmente por sucursal — necesitan traer todos los sellers en scope
+  // del partner/admin logueado para poder cruzarlos. `SellerQuotasSection`
+  // (cuotas por vendedor) es el caso más claro: si el operador tiene 100+
+  // vendedores en total, con `Max(100)` la sucursal seleccionada podría
+  // no ver los suyos y aparecía "no hay vendedores activos".
   @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(1)
-  @Max(100)
+  @Max(1000)
   limit?: number;
 
   @IsOptional()
