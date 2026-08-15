@@ -384,41 +384,48 @@ export class CreateTicket implements UseCase<CreateTicketApplicationInput, Ticke
     const labels = Array.from(requestedByLabel.keys());
     if (labels.length === 0) return;
 
-    // Cuotas por vendedor: solo cargamos para los labels que este ticket
-    // toca (usualmente 1-5 números por ticket, así que N queries baratas
-    // encaja fine y evita traer TODAS las cuotas de la sucursal).
-    const sellerQuotasByLabel = new Map<string, number>();
+    // TODAS las cuotas por vendedor de la sucursal para cada label (no
+    // solo la del vendedor actual). Necesitamos el mapa completo para
+    // calcular el "pool sobrante" que comparten los vendedores SIN cuota:
+    //   pool = tope_sucursal − suma_de_cuotas_asignadas
+    // Antes veníamos consultando solo la cuota del vendedor actual y el
+    // check de tope de sucursal miraba `sold_total` (todos los
+    // vendedores), lo que hacía que un vendedor sin cuota le consumiera
+    // la RESERVA a un vendedor con cuota — bug reportado con la sucursal
+    // de C$1200 y vendedora con C$100 que no podía vender aunque otros
+    // hubieran llenado el pool.
+    const quotasByLabel = new Map<string, Map<string, number>>();
     await Promise.all(
       labels.map(async (label) => {
-        const quota = await this.sellerQuotas.findQuotaForSeller(
-          sellerId,
+        const quotas = await this.sellerQuotas.quotasFor(
+          salePointId,
           gameId,
           label,
         );
-        if (quota !== null) sellerQuotasByLabel.set(label, quota);
+        quotasByLabel.set(label, quotas);
       }),
+    );
+    const hasAnyQuota = Array.from(quotasByLabel.values()).some(
+      (m) => m.size > 0,
     );
 
     // Sin ningún tope aplicable → nada que validar.
-    if (
-      !generalLimit &&
-      perNumberMap.size === 0 &&
-      sellerQuotasByLabel.size === 0
-    ) {
+    if (!generalLimit && perNumberMap.size === 0 && !hasAnyQuota) {
       return;
     }
 
-    // Ventas acumuladas del sorteo por label — a nivel sucursal (todos los
-    // vendedores) y a nivel del vendedor actual. En un solo query trae
-    // ambas para minimizar roundtrips.
+    // Ventas del sorteo por (label, seller_id). Vamos a agregar en TS
+    // distinguiendo vendedor actual / con-cuota / sin-cuota, así que el
+    // GROUP BY por seller_id nos da la granularidad necesaria en un
+    // solo roundtrip.
     const rows = await this.dataSource.query<
-      Array<{ label: string; sold_total: string; sold_seller: string }>
+      Array<{ label: string; seller_id: string; sold: string }>
     >(
       `
       SELECT
         tl.label,
-        COALESCE(SUM(tl.amount), 0)::bigint AS sold_total,
-        COALESCE(SUM(CASE WHEN t.seller_id = $5::uuid THEN tl.amount ELSE 0 END), 0)::bigint AS sold_seller
+        t.seller_id::text AS seller_id,
+        COALESCE(SUM(tl.amount), 0)::bigint AS sold
       FROM ticket_lines tl
       JOIN tickets t ON t.id = tl.ticket_id
       WHERE t.game_id = $1::uuid
@@ -426,40 +433,73 @@ export class CreateTicket implements UseCase<CreateTicketApplicationInput, Ticke
         AND t.draw_at = $3::timestamptz
         AND t.status = 'valid'
         AND tl.label = ANY($4::text[])
-      GROUP BY tl.label
+      GROUP BY tl.label, t.seller_id
       `,
-      [gameId, salePointId, drawAt, labels, sellerId],
+      [gameId, salePointId, drawAt, labels],
     );
-    const soldByLabel = new Map(
-      rows.map((r) => [
-        r.label,
-        { total: Number(r.sold_total), bySeller: Number(r.sold_seller) },
-      ]),
-    );
+
+    interface SoldBucket {
+      bySeller: number;
+      byNonAssigned: number;
+    }
+    const soldByLabel = new Map<string, SoldBucket>();
+    for (const label of labels) {
+      soldByLabel.set(label, { bySeller: 0, byNonAssigned: 0 });
+    }
+    for (const r of rows) {
+      const bucket = soldByLabel.get(r.label);
+      if (!bucket) continue;
+      const amount = Number(r.sold);
+      if (r.seller_id === sellerId) bucket.bySeller += amount;
+      const isAssigned =
+        quotasByLabel.get(r.label)?.has(r.seller_id) ?? false;
+      if (!isAssigned) bucket.byNonAssigned += amount;
+    }
 
     for (const [label, requested] of requestedByLabel) {
-      const sold = soldByLabel.get(label) ?? { total: 0, bySeller: 0 };
+      const sold = soldByLabel.get(label) ?? {
+        bySeller: 0,
+        byNonAssigned: 0,
+      };
+      const quotasForLabel = quotasByLabel.get(label);
+      const currentSellerQuota = quotasForLabel?.get(sellerId);
 
-      // 1. Cuota del vendedor (si existe).
-      const sellerQuota = sellerQuotasByLabel.get(label);
-      if (sellerQuota !== undefined && sold.bySeller + requested > sellerQuota) {
-        const available = Math.max(0, sellerQuota - sold.bySeller);
-        throw new ValidationError(
-          `Tu cuota para el número "${label}" es de C$${sellerQuota} en este sorteo. Disponible para vos: C$${available}.`,
-        );
+      if (currentSellerQuota !== undefined) {
+        // Vendedor CON cuota: solo su cuota personal. Su reserva es
+        // INDEPENDIENTE del pool compartido — otro vendedor no puede
+        // consumirle lo que le asignaron. El tope de sucursal ya está
+        // garantizado a nivel invariante en el upsert de la cuota
+        // (`suma_de_cuotas ≤ tope_sucursal`).
+        if (sold.bySeller + requested > currentSellerQuota) {
+          const available = Math.max(0, currentSellerQuota - sold.bySeller);
+          throw new ValidationError(
+            `Tu cuota para el número "${label}" es de C$${currentSellerQuota} en este sorteo. Disponible para vos: C$${available}.`,
+          );
+        }
+        continue;
       }
 
-      // 2. Tope de sucursal (específico por número o general).
+      // Vendedor SIN cuota: pool sobrante = tope − suma_cuotas_asignadas.
       const specific = perNumberMap.get(label);
       const effectiveLimit =
         specific !== undefined ? specific : generalLimit?.amount ?? null;
       if (effectiveLimit === null) continue;
 
-      if (sold.total + requested > effectiveLimit) {
-        const available = Math.max(0, effectiveLimit - sold.total);
-        throw new ValidationError(
-          `El número "${label}" alcanzó el límite de C$${effectiveLimit} para este sorteo. Disponible: C$${available}.`,
-        );
+      const totalAssigned = Array.from(quotasForLabel?.values() ?? []).reduce(
+        (acc, amt) => acc + amt,
+        0,
+      );
+      const sharedPool = Math.max(0, effectiveLimit - totalAssigned);
+
+      if (sold.byNonAssigned + requested > sharedPool) {
+        const available = Math.max(0, sharedPool - sold.byNonAssigned);
+        // Mensaje distinto según si hay cuotas asignadas — cambia lo que
+        // el vendedor entiende del "tope".
+        const message =
+          totalAssigned > 0
+            ? `El número "${label}" alcanzó el límite compartido para vendedores sin cuota en este sorteo. Disponible: C$${available}.`
+            : `El número "${label}" alcanzó el límite de C$${effectiveLimit} para este sorteo. Disponible: C$${available}.`;
+        throw new ValidationError(message);
       }
     }
   }
