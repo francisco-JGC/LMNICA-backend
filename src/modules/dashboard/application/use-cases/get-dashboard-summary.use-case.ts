@@ -20,6 +20,7 @@ import {
   TICKETS_REPOSITORY,
   type TicketsRepository,
 } from '../../../tickets/domain/repositories/tickets.repository';
+import { GameType } from '../../../games/domain/value-objects/game-type';
 import { TicketStatus } from '../../../tickets/domain/value-objects/ticket-status';
 import type {
   DashboardSummaryOutput,
@@ -60,6 +61,39 @@ interface Ranges {
   prevFrom: Date;
   prevTo: Date;
 }
+
+/**
+ * Cache in-memory con TTL para la serie histórica de "ganado por mes".
+ * Compartido entre requests del MISMO scope — típicamente todos los
+ * admins comparten scope (todas las sucursales activas), y los partners
+ * ven el mismo scope entre sus propias llamadas.
+ *
+ * TTL 5 min: los meses pasados NO cambian nunca, solo el actual. Un
+ * desfase de hasta 5 min en el mes actual del chart histórico es
+ * aceptable a cambio de bajar el load del dashboard de segundos a ms.
+ *
+ * Vive a nivel de módulo (no de instancia del @Injectable) para
+ * compartirse entre requests. Nest crea el use-case como singleton por
+ * default, así que sería el mismo Map igual, pero explícito es mejor.
+ */
+const _monthlyWonCache = new Map<
+  string,
+  { value: Map<string, number>; expiresAt: number }
+>();
+const MONTHLY_WON_TTL_MS = 5 * 60 * 1000;
+
+/**
+ * Cache in-memory con TTL corto del dashboard summary completo.
+ * Key = requesterId + from + to. Kills back-to-back hits (usuario que
+ * refresca varias veces o tabbea entre pantallas y vuelve). TTL 20s
+ * porque los KPIs "de hoy" deben sentirse frescos — pero no re-computar
+ * el mismo state si hits ocurren dentro de esa ventana.
+ */
+const _summaryCache = new Map<
+  string,
+  { value: DashboardSummaryOutput; expiresAt: number }
+>();
+const SUMMARY_TTL_MS = 20 * 1000;
 
 const EMPTY_SUMMARY: DashboardSummaryOutput = {
   billed: 0,
@@ -113,6 +147,21 @@ export class GetDashboardSummary
 
     const ranges = this.resolveRanges(input.from, input.to);
 
+    // Cache TTL corto del summary completo — cubre el refresh rápido del
+    // usuario (F5, tabbear entre pantallas y volver) sin re-hacer las
+    // 7 queries. Key incluye el requesterId porque el scope varía por
+    // usuario (admin vs partner), y las fechas del rango.
+    const summaryKey = this.buildSummaryCacheKey(
+      input.requesterId,
+      ranges.from,
+      ranges.to,
+    );
+    const now = Date.now();
+    const cachedSummary = _summaryCache.get(summaryKey);
+    if (cachedSummary && cachedSummary.expiresAt > now) {
+      return cachedSummary.value;
+    }
+
     const [
       kpis,
       wonKpis,
@@ -137,7 +186,7 @@ export class GetDashboardSummary
     const profit = kpis.billed - wonKpis.won;
     const profitPrev = kpis.billedPrev - wonKpis.wonPrev;
 
-    return {
+    const summary: DashboardSummaryOutput = {
       ...kpis,
       ...wonKpis,
       profit,
@@ -148,6 +197,30 @@ export class GetDashboardSummary
       topSellers,
       topSalePoints,
     };
+
+    _summaryCache.set(summaryKey, {
+      value: summary,
+      expiresAt: Date.now() + SUMMARY_TTL_MS,
+    });
+    // Housekeeping: si el cache creció mucho (usuarios distintos usando
+    // rangos custom variados), purgamos entries expiradas para no crecer
+    // indefinidamente en memoria.
+    if (_summaryCache.size > 200) {
+      const nowMs = Date.now();
+      for (const [k, entry] of _summaryCache) {
+        if (entry.expiresAt <= nowMs) _summaryCache.delete(k);
+      }
+    }
+
+    return summary;
+  }
+
+  private buildSummaryCacheKey(
+    requesterId: string,
+    from: Date,
+    to: Date,
+  ): string {
+    return `${requesterId}|${from.getTime()}|${to.getTime()}`;
   }
 
   // --- Ranges ---------------------------------------------------------------
@@ -447,50 +520,152 @@ export class GetDashboardSummary
   private async loadMonthlyWon(
     scope: SalePointScope,
   ): Promise<Map<string, number>> {
-    const rangeStart = this.monthStartInBiz(MONTHS_IN_SERIES - 1);
-    const tickets = await this.tickets.findMany({
-      status: TicketStatus.VALID,
-      salePointIds: scope,
-      from: rangeStart,
-      // Sin `to` → todo el histórico hasta hoy. Un ticket cuyo sorteo
-      // aún no ocurrió contribuye 0 al totalPrize (evaluator lo devuelve
-      // como pendiente).
-      limit: 500_000,
-      offset: 0,
-    });
-    if (tickets.length === 0) return new Map();
-
-    let minDrawMs = tickets[0].drawAt.getTime();
-    let maxDrawMs = minDrawMs;
-    for (const t of tickets) {
-      const ms = t.drawAt.getTime();
-      if (ms < minDrawMs) minDrawMs = ms;
-      if (ms > maxDrawMs) maxDrawMs = ms;
+    // Cache por scope. Misma escala típica: TODOS los admins comparten un
+    // scope idéntico (todas las sucursales activas), así que el 2do admin
+    // que abre el dashboard reutiliza el cómputo del 1ro. Los partners
+    // reutilizan entre sus propias visitas.
+    const cacheKey = this.buildMonthlyWonCacheKey(scope);
+    const now = Date.now();
+    const cached = _monthlyWonCache.get(cacheKey);
+    if (cached && cached.expiresAt > now) {
+      return cached.value;
     }
 
-    const [draws, gamesAll] = await Promise.all([
-      this.drawResults.findMany({
-        from: new Date(minDrawMs),
-        to: new Date(maxDrawMs),
-      }),
-      this.games.findAll({ onlyActive: false }),
-    ]);
-    const drawByKey = new Map(
-      draws.map((d) => [`${d.gameId}|${d.drawAt.toISOString()}`, d]),
+    const value = await this._computeMonthlyWon(scope);
+    _monthlyWonCache.set(cacheKey, {
+      value,
+      expiresAt: now + MONTHLY_WON_TTL_MS,
+    });
+    // Housekeeping cuando crece.
+    if (_monthlyWonCache.size > 100) {
+      for (const [k, entry] of _monthlyWonCache) {
+        if (entry.expiresAt <= now) _monthlyWonCache.delete(k);
+      }
+    }
+    return value;
+  }
+
+  private buildMonthlyWonCacheKey(scope: SalePointScope): string {
+    // Ordenamos para que scopes con los mismos ids pero distinto orden
+    // colisionen a la misma key (case típico: partner con 2 sucursales).
+    return [...scope].sort().join(',');
+  }
+
+  private async _computeMonthlyWon(
+    scope: SalePointScope,
+  ): Promise<Map<string, number>> {
+    const rangeStart = this.monthStartInBiz(MONTHS_IN_SERIES - 1);
+
+    // Nueva estrategia: filtramos en SQL solo las líneas que POTENCIALMENTE
+    // son ganadoras — el 99.9% de las apuestas no ganan y no tiene sentido
+    // traerlas al proceso Node solo para descartarlas. El INNER JOIN con
+    // `draw_results` además excluye tickets cuyo sorteo aún no ejecutó
+    // (contribuyen 0 al won).
+    //
+    // El WHERE OR captura dos categorías de candidatos:
+    //   1. Match "exacto" tras normalizar (quitar `(F)`, trim, lowercase):
+    //      cubre REGULAR / DATE / FOUR_DIGIT / THREE_DIGIT sin fácil.
+    //   2. Líneas con `(F)`: candidatos de fácil de THREE_DIGIT — JS re-
+    //      chequea que los dígitos ordenados matcheen.
+    //
+    // Con esto pasamos de traer ~500k tickets a traer decenas o pocos
+    // cientos de líneas — bajamos de segundos a milisegundos.
+    interface CandidateRow {
+      game_type: GameType;
+      created_at: Date;
+      label: string;
+      prize: string;
+      pair_easy_prize: string | null;
+      winning_number: string;
+    }
+
+    const rows = await this.dataSource.query<CandidateRow[]>(
+      `
+      SELECT
+        g.type          AS game_type,
+        t.created_at    AS created_at,
+        tl.label        AS label,
+        tl.prize        AS prize,
+        tl.pair_easy_prize AS pair_easy_prize,
+        dr.winning_number  AS winning_number
+      FROM tickets t
+      JOIN ticket_lines tl ON tl.ticket_id = t.id
+      JOIN draw_results dr
+        ON dr.game_id = t.game_id AND dr.draw_at = t.draw_at
+      JOIN games g ON g.id = t.game_id
+      WHERE t.status = 'valid'
+        AND t.sale_point_id = ANY($1::uuid[])
+        AND t.created_at >= $2::timestamptz
+        AND (
+          LOWER(TRIM(REGEXP_REPLACE(tl.label, '\\(F\\)', '', 'gi')))
+            = LOWER(dr.winning_number)
+          OR tl.label ILIKE '%(F)%'
+        )
+      `,
+      [scope, rangeStart],
     );
-    const gameById = new Map(gamesAll.map((g) => [g.id, g]));
 
     const wonByMonth = new Map<string, number>();
-    for (const t of tickets) {
-      const game = gameById.get(t.gameId) ?? null;
-      const key = `${t.gameId}|${t.drawAt.toISOString()}`;
-      const draw = drawByKey.get(key) ?? null;
-      const ev = this.evaluator.evaluateWith(t, game, draw);
-      if (ev.totalPrize <= 0) continue;
-      const monthKey = this.monthKeyInBiz(t.createdAt);
-      wonByMonth.set(monthKey, (wonByMonth.get(monthKey) ?? 0) + ev.totalPrize);
+    for (const row of rows) {
+      const wonPrize = this.evaluateCandidateRow(row);
+      if (wonPrize <= 0) continue;
+      const monthKey = this.monthKeyInBiz(new Date(row.created_at));
+      wonByMonth.set(
+        monthKey,
+        (wonByMonth.get(monthKey) ?? 0) + wonPrize,
+      );
     }
     return wonByMonth;
+  }
+
+  /**
+   * Replica la lógica del `TicketEvaluator` para una única línea, dado
+   * el winning_number del draw. Retorna el premio (0 si no gana).
+   *
+   * Duplicamos el mini-flujo acá en vez de instanciar Tickets desde las
+   * filas planas del SQL porque:
+   *   - La lógica per-línea son ~10 líneas, no vale abstraer.
+   *   - Evitamos allocar objects de dominio (Ticket + TicketLine) por
+   *     cada candidato — es un hot path.
+   */
+  private evaluateCandidateRow(row: {
+    game_type: GameType;
+    label: string;
+    prize: string;
+    pair_easy_prize: string | null;
+    winning_number: string;
+  }): number {
+    const winning = row.winning_number;
+    const isFacil = /\(F\)/i.test(row.label);
+    const digits = row.label.replace(/\(F\)/i, '').trim();
+    const prize = Number(row.prize);
+    const pairEasyPrize =
+      row.pair_easy_prize !== null ? Number(row.pair_easy_prize) : null;
+
+    switch (row.game_type) {
+      case GameType.REGULAR:
+      case GameType.FOUR_DIGIT:
+      case GameType.DATE:
+        return digits.toLowerCase() === winning.toLowerCase() ? prize : 0;
+      case GameType.THREE_DIGIT: {
+        if (!isFacil) return digits === winning ? prize : 0;
+        const sortedLabel = digits.split('').sort().join('');
+        const sortedWinning = winning.split('').sort().join('');
+        if (sortedLabel !== sortedWinning) return 0;
+        // Fácil ganador: si hay premio par configurado Y el ganador
+        // tiene dígitos repetidos, usar el premio par.
+        if (pairEasyPrize !== null && this.hasRepeatedDigits(winning)) {
+          return pairEasyPrize;
+        }
+        return prize;
+      }
+      case GameType.MULTI_SORTEO:
+        return 0;
+    }
+  }
+
+  private hasRepeatedDigits(value: string): boolean {
+    return new Set(value.split('')).size < value.length;
   }
 
   /**
