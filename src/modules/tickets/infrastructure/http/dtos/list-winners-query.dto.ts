@@ -1,8 +1,10 @@
 import {
   IsDateString,
   IsOptional,
+  IsString,
   IsUUID,
   Matches,
+  MaxLength,
 } from 'class-validator';
 
 export class ListWinnersQueryDto {
@@ -35,4 +37,10 @@ export class ListWinnersQueryDto {
     message: 'drawTime must be HH:MM (24h)',
   })
   drawTime?: string;
+
+  /** Igual que en `ListTicketsQueryDto.search` — folio prefix o cliente. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  search?: string;
 }

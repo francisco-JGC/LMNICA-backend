@@ -30,6 +30,8 @@ export interface ListTicketsInput {
   to?: Date;
   /** "HH:MM" wall clock in Managua tz — filter to draws at this time. */
   drawTime?: string;
+  /** Búsqueda por folio (prefix) o cliente (anywhere), case-insensitive. */
+  search?: string;
 }
 
 export interface ListTicketsOutput {
@@ -75,15 +77,25 @@ export class ListTickets implements UseCase<ListTicketsInput, ListTicketsOutput>
     // Antes paginábamos con LIMIT en SQL y el cliente sumaba localmente,
     // pero eso hacía que "Facturas" y "Boletos ganadores" reportaran
     // números distintos cuando había más tickets que el limit.
+    //
+    // Cuando llega `search` (folio o cliente), ignoramos el rango de fechas
+    // y el `drawTime`: un folio es único a nivel sistema y el vendedor
+    // busca ese boleto sin importar cuándo se emitió. Sin este bypass, un
+    // folio de días previos nunca aparecía porque el default from/to es
+    // "hoy". Mantenemos el resto de filtros (sucursal/juego/status/scope)
+    // como AND para no romper el partner-scoping.
+    const searchTerm = input.search?.trim();
+    const isSearching = searchTerm !== undefined && searchTerm.length > 0;
     const tickets = await this.tickets.findMany({
       sellerId: effectiveSellerId,
       salePointId: input.salePointId,
       salePointIds: accessibleSalePointIds,
       gameId: input.gameId,
       status: input.status,
-      from: input.from,
-      to: input.to,
-      drawTime: input.drawTime,
+      from: isSearching ? undefined : input.from,
+      to: isSearching ? undefined : input.to,
+      drawTime: isSearching ? undefined : input.drawTime,
+      search: isSearching ? searchTerm : undefined,
       limit: 100_000,
       offset: 0,
     });

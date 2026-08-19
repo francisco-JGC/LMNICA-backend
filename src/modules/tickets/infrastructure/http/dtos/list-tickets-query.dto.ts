@@ -5,6 +5,7 @@ import {
   IsString,
   IsUUID,
   Matches,
+  MaxLength,
 } from 'class-validator';
 
 import { TicketStatus } from '../../../domain/value-objects/ticket-status';
@@ -47,4 +48,14 @@ export class ListTicketsQueryDto {
     message: 'drawTime must be HH:MM in 24-hour format',
   })
   drawTime?: string;
+
+  /**
+   * Búsqueda por folio (prefix) o cliente (anywhere). Cuando viene, el
+   * use-case ignora `from`/`to` — si el operador busca un folio, no le
+   * importa el rango de fechas porque un folio es único a nivel sistema.
+   */
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  search?: string;
 }

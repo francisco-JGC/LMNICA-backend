@@ -34,6 +34,8 @@ export interface ListWinningTicketsInput {
   to?: Date;
   /** "HH:MM" wall clock in Managua — filter to draws at this time. */
   drawTime?: string;
+  /** Búsqueda por folio (prefix) o cliente (anywhere). */
+  search?: string;
 }
 
 export interface WinningTicketOutput {
@@ -69,15 +71,22 @@ export class ListWinningTickets
     );
     if (partnerScope.length === 0) return [];
 
+    // Mismo bypass que en `list-tickets`: si el operador está buscando
+    // por folio/cliente, ignoramos rango de fechas y drawTime — un folio
+    // es único y el usuario no debería tener que "adivinar" cuándo se
+    // emitió el boleto para poder encontrarlo.
+    const searchTerm = input.search?.trim();
+    const isSearching = searchTerm !== undefined && searchTerm.length > 0;
     const items = await this.tickets.findMany({
       sellerId: effectiveSellerId,
       salePointId: input.salePointId,
       salePointIds: partnerScope,
       gameId: input.gameId,
       status: TicketStatus.VALID,
-      from: input.from,
-      to: input.to,
-      drawTime: input.drawTime,
+      from: isSearching ? undefined : input.from,
+      to: isSearching ? undefined : input.to,
+      drawTime: isSearching ? undefined : input.drawTime,
+      search: isSearching ? searchTerm : undefined,
       // Alineado con `GetMovementsBalance.computeWonBySalePoint` y
       // `GetDashboardSummary.loadWonKpis` — cualquier valor menor causaba
       // que la pantalla de "Boletos ganadores" mostrara un total menor

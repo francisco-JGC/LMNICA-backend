@@ -22,6 +22,14 @@ export interface FindTicketsFilters {
    * a date range regardless of which specific day each ticket landed on.
    */
   drawTime?: string;
+  /**
+   * Búsqueda libre: matchea folio (prefix, case-insensitive) O cliente
+   * (anywhere, case-insensitive). Usado por la barra de búsqueda en la
+   * UI de ventas/ganadores. La query aplica OR con los otros filtros
+   * como AND, así que "sucursal + search" filtra por sucursal Y matchea
+   * uno de los dos campos.
+   */
+  search?: string;
   limit: number;
   offset: number;
 }

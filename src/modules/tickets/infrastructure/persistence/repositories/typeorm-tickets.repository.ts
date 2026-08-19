@@ -74,32 +74,54 @@ export class TypeOrmTicketsRepository implements TicketsRepository {
 
   private buildWhere(
     filters: FindTicketsFilters,
-  ): FindOptionsWhere<TicketOrmEntity> {
-    const where: FindOptionsWhere<TicketOrmEntity> = {};
-    if (filters.sellerId) where.sellerId = filters.sellerId;
+  ):
+    | FindOptionsWhere<TicketOrmEntity>
+    | FindOptionsWhere<TicketOrmEntity>[] {
+    const base: FindOptionsWhere<TicketOrmEntity> = {};
+    if (filters.sellerId) base.sellerId = filters.sellerId;
     if (filters.salePointId) {
-      where.salePointId = filters.salePointId;
+      base.salePointId = filters.salePointId;
     } else if (filters.salePointIds && filters.salePointIds.length > 0) {
-      where.salePointId = In(filters.salePointIds);
+      base.salePointId = In(filters.salePointIds);
     }
-    if (filters.gameId) where.gameId = filters.gameId;
-    if (filters.status) where.status = filters.status;
+    if (filters.gameId) base.gameId = filters.gameId;
+    if (filters.status) base.status = filters.status;
     if (filters.from && filters.to) {
-      where.createdAt = Between(filters.from, filters.to);
+      base.createdAt = Between(filters.from, filters.to);
     } else if (filters.from) {
-      where.createdAt = MoreThanOrEqual(filters.from);
+      base.createdAt = MoreThanOrEqual(filters.from);
     } else if (filters.to) {
-      where.createdAt = LessThanOrEqual(filters.to);
+      base.createdAt = LessThanOrEqual(filters.to);
     }
     if (filters.drawTime) {
       // Match "wall-clock time in Managua" — same schedule (e.g. 11:00)
       // across every day in the from/to range.
-      where.drawAt = Raw(
+      base.drawAt = Raw(
         (alias) =>
           `to_char(${alias} AT TIME ZONE '${BUSINESS_TZ}', 'HH24:MI') = :drawTime`,
         { drawTime: filters.drawTime },
       );
     }
-    return where;
+
+    const term = filters.search?.trim();
+    if (!term) return base;
+    // OR entre folio (prefix, uppercase — el generator emite MAYÚSCULAS)
+    // y cliente (anywhere, case-insensitive). Devolver un array de
+    // `FindOptionsWhere` le indica a TypeORM que combine los items con
+    // OR, manteniendo cada uno los filtros comunes (AND).
+    return [
+      {
+        ...base,
+        folio: Raw((alias) => `${alias} ILIKE :folioTerm`, {
+          folioTerm: `${term}%`,
+        }),
+      },
+      {
+        ...base,
+        client: Raw((alias) => `${alias} ILIKE :clientTerm`, {
+          clientTerm: `%${term}%`,
+        }),
+      },
+    ];
   }
 }
