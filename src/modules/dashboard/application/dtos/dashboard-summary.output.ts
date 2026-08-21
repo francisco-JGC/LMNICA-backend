@@ -1,17 +1,3 @@
-export interface MonthlySeriesPoint {
-  /** ISO first day of the month (YYYY-MM-01). */
-  monthStart: string;
-  /** Localized month label ("Enero", "Feb", ...). */
-  label: string;
-  /** Total billed (tickets.total) for that month, excluding voided tickets. */
-  billed: number;
-  /**
-   * Total ganado (evaluado contra draw_results) para ese mes.
-   * Reemplaza el viejo `paid` (dependía del flag "paid_at", ya eliminado).
-   */
-  won: number;
-}
-
 export interface GameBreakdownItem {
   gameId: string;
   gameName: string;
@@ -79,7 +65,6 @@ export interface DashboardSummaryOutput {
   totalUsers: number;
 
   // Rest — usan el rango también.
-  monthlySeries: MonthlySeriesPoint[];
   byGame: GameBreakdownItem[];
   /**
    * Ganadores recientes (últimos 30 días, no filtrado por el rango del
