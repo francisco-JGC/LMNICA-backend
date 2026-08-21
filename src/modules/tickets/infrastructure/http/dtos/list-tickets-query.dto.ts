@@ -1,6 +1,8 @@
+import { Type } from 'class-transformer';
 import {
   IsDateString,
   IsEnum,
+  IsInt,
   IsOptional,
   IsString,
   IsUUID,
@@ -58,4 +60,25 @@ export class ListTicketsQueryDto {
   @IsString()
   @MaxLength(60)
   search?: string;
+
+  /**
+   * Compat shim: APKs del mobile anteriores al 2026-08-12 seguían
+   * mandando `page` y `limit` cuando la paginación era client-driven.
+   * El endpoint desde entonces devuelve todo el rango bounded a 100k y
+   * ni el web ni las nuevas builds del mobile los envían. Los declaramos
+   * como opcionales (y los ignoramos en el use-case) porque el
+   * `ValidationPipe` global tiene `forbidNonWhitelisted: true` — si no,
+   * los dispositivos que no actualizaron rompen con 400 "property page
+   * should not exist". Cuando confirmemos que ya no hay APKs viejos en
+   * el campo, se pueden quitar.
+   */
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  page?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  limit?: number;
 }
