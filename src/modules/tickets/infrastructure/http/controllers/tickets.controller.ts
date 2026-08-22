@@ -161,6 +161,7 @@ export class TicketsController {
       requesterId: user.id,
       requesterRole: user.role,
       salePointId: query.salePointId,
+      salePointIds: query.salePointIds,
       sellerId: query.sellerId,
       from: query.from ? new Date(query.from) : undefined,
       to: query.to ? new Date(query.to) : undefined,

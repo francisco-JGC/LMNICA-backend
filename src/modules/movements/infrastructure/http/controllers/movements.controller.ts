@@ -79,6 +79,7 @@ export class MovementsController {
       requesterId: user.id,
       requesterRole: user.role,
       salePointId: query.salePointId,
+      salePointIds: query.salePointIds,
       from: query.from ? new Date(query.from) : undefined,
       to: query.to ? new Date(query.to) : undefined,
     });

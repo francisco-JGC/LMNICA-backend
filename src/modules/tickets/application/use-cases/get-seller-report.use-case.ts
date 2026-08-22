@@ -32,6 +32,8 @@ export interface GetSellerReportInput {
   requesterId: string;
   requesterRole: UserRole;
   salePointId?: string;
+  /** Multi-sucursal. Se intersecta con el partner scope antes de aplicar. */
+  salePointIds?: string[];
   sellerId?: string;
   from?: Date;
   to?: Date;
@@ -81,6 +83,13 @@ export class GetSellerReport
     );
     if (partnerScope.length === 0) return { items: [] };
 
+    // Intersecta el filtro multi-sucursal con el scope autorizado.
+    const effectiveScope =
+      input.salePointIds && input.salePointIds.length > 0
+        ? partnerScope.filter((id) => input.salePointIds!.includes(id))
+        : partnerScope;
+    if (effectiveScope.length === 0) return { items: [] };
+
     const rows = await this.dataSource.query<RawRow[]>(
       `
       SELECT
@@ -101,7 +110,7 @@ export class GetSellerReport
         input.salePointId ?? null,
         input.from ?? null,
         input.to ?? null,
-        partnerScope,
+        effectiveScope,
       ],
     );
 
@@ -110,7 +119,7 @@ export class GetSellerReport
     const wonBySeller = await this.computeWonBySeller({
       sellerId: effectiveSellerId,
       salePointId: input.salePointId,
-      salePointIds: partnerScope,
+      salePointIds: effectiveScope,
       from: input.from,
       to: input.to,
     });
@@ -122,7 +131,7 @@ export class GetSellerReport
     const sellers = await this.resolveSellerScope({
       effectiveSellerId,
       salePointId: input.salePointId,
-      salePointIds: partnerScope,
+      salePointIds: effectiveScope,
     });
 
     if (sellers.length === 0) return { items: [] };

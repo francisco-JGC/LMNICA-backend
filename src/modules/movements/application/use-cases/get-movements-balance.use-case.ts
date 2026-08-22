@@ -36,6 +36,13 @@ export interface GetMovementsBalanceInput {
   requesterId: string;
   requesterRole: UserRole;
   salePointId?: string;
+  /**
+   * Filtro multi-sucursal. Se intersecta con el partner scope — si el
+   * operador manda una sucursal a la que no tiene acceso, se descarta
+   * silenciosamente en vez de exponerla. `salePointId` singular tiene
+   * precedencia si viene también (compat legacy).
+   */
+  salePointIds?: string[];
   from?: Date;
   to?: Date;
 }
@@ -83,6 +90,15 @@ export class GetMovementsBalance
     );
     if (partnerScope.length === 0) return { items: [] };
 
+    // Multi-select: intersecta la lista pedida con el scope del partner.
+    // Si el operador manda IDs que no le pertenecen, los ignoramos.
+    // Si la intersección queda vacía, no hay datos que devolver.
+    const effectiveScope =
+      input.salePointIds && input.salePointIds.length > 0
+        ? partnerScope.filter((id) => input.salePointIds!.includes(id))
+        : partnerScope;
+    if (effectiveScope.length === 0) return { items: [] };
+
     // Pull the six numeric buckets in one query. A UNION ALL is used so
     // sucursales without tickets can still show up because they have
     // movements (or vice versa), and both sides share the same filters.
@@ -126,7 +142,7 @@ export class GetMovementsBalance
         input.salePointId ?? null,
         input.from ?? null,
         input.to ?? null,
-        partnerScope,
+        effectiveScope,
       ],
     );
 
@@ -138,7 +154,7 @@ export class GetMovementsBalance
     // no la duplicamos en SQL.
     const wonBySalePoint = await this.computeWonBySalePoint({
       salePointId: input.salePointId,
-      salePointIds: partnerScope,
+      salePointIds: effectiveScope,
       from: input.from,
       to: input.to,
     });
