@@ -379,14 +379,25 @@ export class GetDashboardSummary
            AND t.created_at >= $5::timestamptz AND t.created_at < $6::timestamptz
           THEN 1 ELSE 0 END), 0)::bigint AS tickets_prev,
 
-        COALESCE(SUM(CASE
-          WHEN t.status = 'valid'
-           AND (t.created_at AT TIME ZONE $1)::date >= (now() AT TIME ZONE $1)::date - 6
-          THEN t.total ELSE 0 END), 0)::bigint AS weekly_billed,
+        -- Semana en curso: desde el lunes de esta semana (Managua) hasta
+        -- HOY inclusive. date_trunc('week', d) en Postgres devuelve el
+        -- lunes ISO 8601. Si hoy es sábado cuenta lunes-sábado; si es
+        -- miércoles cuenta lunes-miércoles.
         COALESCE(SUM(CASE
           WHEN t.status = 'valid'
            AND (t.created_at AT TIME ZONE $1)::date BETWEEN
-                 (now() AT TIME ZONE $1)::date - 13 AND (now() AT TIME ZONE $1)::date - 7
+                 date_trunc('week', now() AT TIME ZONE $1)::date
+                 AND (now() AT TIME ZONE $1)::date
+          THEN t.total ELSE 0 END), 0)::bigint AS weekly_billed,
+        -- Comparativo: mismos días transcurridos de la semana PASADA
+        -- (lunes-pasado hasta el mismo día de la semana pasada). El rango
+        -- de esta semana desplazado 7 días atrás — mantiene la simetría
+        -- lunes→sábado_pasado si hoy es sábado.
+        COALESCE(SUM(CASE
+          WHEN t.status = 'valid'
+           AND (t.created_at AT TIME ZONE $1)::date BETWEEN
+                 (date_trunc('week', now() AT TIME ZONE $1)::date - INTERVAL '7 days')::date
+                 AND ((now() AT TIME ZONE $1)::date - INTERVAL '7 days')::date
           THEN t.total ELSE 0 END), 0)::bigint AS weekly_billed_prev,
 
         (
