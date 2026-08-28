@@ -53,6 +53,7 @@ export class MovementsController {
       amount: dto.amount,
       description: dto.description,
       occurredAt: dto.occurredAt ? new Date(dto.occurredAt) : undefined,
+      clientRequestId: dto.clientRequestId ?? null,
     });
   }
 

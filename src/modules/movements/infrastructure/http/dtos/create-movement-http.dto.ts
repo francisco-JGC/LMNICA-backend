@@ -32,4 +32,12 @@ export class CreateMovementHttpDto {
   @IsOptional()
   @IsDateString()
   occurredAt?: string;
+
+  /**
+   * UUID v4 opcional para dedupear reintentos. Ver comentario del use
+   * case. Se acepta como opcional para no romper clientes antiguos.
+   */
+  @IsOptional()
+  @IsUUID()
+  clientRequestId?: string;
 }

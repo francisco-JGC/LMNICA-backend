@@ -28,6 +28,14 @@ export interface CreateMovementInput {
   description?: string;
   /** Optional — defaults to now. */
   occurredAt?: Date;
+  /**
+   * UUID v4 generado por el cliente para dedupear reintentos. Si dos
+   * requests llegan con el mismo id (doble-click, retry por timeout, o
+   * load balancer duplicando en réplicas horizontales), el backend
+   * devuelve el mismo movement en vez de crear duplicados. Legacy
+   * clients que no lo mandan siguen funcionando (crean sin dedupe).
+   */
+  clientRequestId?: string | null;
 }
 
 @Injectable()
@@ -43,6 +51,18 @@ export class CreateMovement
   ) {}
 
   async execute(input: CreateMovementInput): Promise<MovementOutput> {
+    // Idempotencia (mismo patrón que `CreateTicket`): si el cliente mandó
+    // un requestId y ya existe un movement con ese id, devolvemos ese
+    // mismo movement. Cubre "click en Guardar dos veces mientras el
+    // server tardaba" y "load balancer reintentó por timeout". Corre
+    // antes de las validaciones costosas para minimizar trabajo redundante.
+    if (input.clientRequestId) {
+      const existing = await this.movements.findByClientRequestId(
+        input.clientRequestId,
+      );
+      if (existing) return toMovementOutput(existing);
+    }
+
     if (input.requesterRole === UserRole.SELLER) {
       throw new ForbiddenException('Los vendedores no crean movimientos');
     }
@@ -72,8 +92,42 @@ export class CreateMovement
       description: input.description,
       occurredAt: input.occurredAt,
       createdById: input.requesterId,
+      clientRequestId: input.clientRequestId ?? null,
     });
-    await this.movements.save(movement);
+
+    try {
+      await this.movements.save(movement);
+    } catch (err) {
+      // Race: dos requests con el mismo `clientRequestId` entraron en
+      // paralelo (ambos pasaron el lookup inicial), el segundo choca
+      // con el UNIQUE parcial. Devolvemos el movement ganador (el
+      // primero) para que el cliente reciba una respuesta útil en vez
+      // de un 500.
+      if (input.clientRequestId && this.isDuplicateRequestIdError(err)) {
+        const existing = await this.movements.findByClientRequestId(
+          input.clientRequestId,
+        );
+        if (existing) return toMovementOutput(existing);
+      }
+      throw err;
+    }
+
     return toMovementOutput(movement);
+  }
+
+  /** Reconoce la violación del UNIQUE parcial sobre `client_request_id`. */
+  private isDuplicateRequestIdError(err: unknown): boolean {
+    if (typeof err !== 'object' || err === null) return false;
+    const anyErr = err as {
+      code?: string;
+      constraint?: string;
+      message?: string;
+    };
+    // Postgres 23505 = unique_violation.
+    if (anyErr.code !== '23505') return false;
+    return (
+      anyErr.constraint === 'IDX_movements_client_request_id' ||
+      (anyErr.message ?? '').includes('client_request_id')
+    );
   }
 }

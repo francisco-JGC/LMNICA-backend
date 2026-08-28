@@ -19,6 +19,12 @@ export interface FindMovementsFilters {
 export interface MovementsRepository {
   save(movement: Movement): Promise<void>;
   findById(id: string): Promise<Movement | null>;
+  /**
+   * Lookup por el UUID de idempotencia. `CreateMovement` lo usa antes de
+   * insertar para dedupear reintentos (retry por timeout, doble-click en
+   * "Guardar", refresh del token). Ver `movement.orm-entity.ts`.
+   */
+  findByClientRequestId(clientRequestId: string): Promise<Movement | null>;
   findMany(filters: FindMovementsFilters): Promise<Movement[]>;
   countMany(filters: FindMovementsFilters): Promise<number>;
   delete(id: string): Promise<void>;

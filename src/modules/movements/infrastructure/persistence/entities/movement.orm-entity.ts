@@ -47,6 +47,14 @@ export class MovementOrmEntity {
   @JoinColumn({ name: 'created_by_id' })
   createdBy?: UserOrmEntity | null;
 
+  /**
+   * UUID generado por el cliente para dedupear reintentos. Índice UNIQUE
+   * parcial (`IDX_movements_client_request_id`) — dos requests con el
+   * mismo id devuelven el mismo movement en vez de crear duplicados.
+   */
+  @Column({ type: 'uuid', name: 'client_request_id', nullable: true })
+  clientRequestId!: string | null;
+
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt!: Date;
 

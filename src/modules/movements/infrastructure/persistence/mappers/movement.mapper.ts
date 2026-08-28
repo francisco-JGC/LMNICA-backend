@@ -10,6 +10,7 @@ export class MovementMapper {
       description: orm.description ?? '',
       occurredAt: orm.occurredAt,
       createdById: orm.createdById ?? null,
+      clientRequestId: orm.clientRequestId ?? null,
       createdAt: orm.createdAt,
       updatedAt: orm.updatedAt,
     });
@@ -24,6 +25,7 @@ export class MovementMapper {
     entity.description = movement.description;
     entity.occurredAt = movement.occurredAt;
     entity.createdById = movement.createdById;
+    entity.clientRequestId = movement.clientRequestId;
     entity.createdAt = movement.createdAt;
     entity.updatedAt = movement.updatedAt;
     return entity;

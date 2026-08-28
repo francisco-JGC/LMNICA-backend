@@ -33,6 +33,13 @@ export class TypeOrmMovementsRepository implements MovementsRepository {
     return found ? MovementMapper.toDomain(found) : null;
   }
 
+  async findByClientRequestId(
+    clientRequestId: string,
+  ): Promise<Movement | null> {
+    const found = await this.repo.findOne({ where: { clientRequestId } });
+    return found ? MovementMapper.toDomain(found) : null;
+  }
+
   async findMany(filters: FindMovementsFilters): Promise<Movement[]> {
     if (filters.salePointIds && filters.salePointIds.length === 0) return [];
     const rows = await this.repo.find({

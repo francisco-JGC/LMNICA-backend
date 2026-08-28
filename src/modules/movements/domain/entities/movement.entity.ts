@@ -12,6 +12,12 @@ export interface MovementProps {
   description: string;
   occurredAt: Date;
   createdById: string | null;
+  /**
+   * UUID de idempotencia enviado por el cliente. Ver comentario en
+   * `movement.orm-entity.ts`. Legacy movements creados antes del
+   * feature son `null`.
+   */
+  clientRequestId: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -28,6 +34,7 @@ export class Movement extends AggregateRoot<MovementProps> {
     description?: string;
     occurredAt?: Date;
     createdById: string | null;
+    clientRequestId?: string | null;
   }): Movement {
     if (!Number.isInteger(input.amount) || input.amount < 0) {
       throw new ValidationError('amount must be a non-negative integer');
@@ -40,6 +47,7 @@ export class Movement extends AggregateRoot<MovementProps> {
       description: input.description?.trim() ?? '',
       occurredAt: input.occurredAt ?? now,
       createdById: input.createdById,
+      clientRequestId: input.clientRequestId ?? null,
       createdAt: now,
       updatedAt: now,
     });
@@ -71,6 +79,10 @@ export class Movement extends AggregateRoot<MovementProps> {
 
   get createdById(): string | null {
     return this.props.createdById;
+  }
+
+  get clientRequestId(): string | null {
+    return this.props.clientRequestId;
   }
 
   get createdAt(): Date {
