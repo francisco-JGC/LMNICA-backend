@@ -1,6 +1,7 @@
 import {
   Column,
   Entity,
+  Index,
   JoinColumn,
   ManyToOne,
   PrimaryColumn,
@@ -13,6 +14,7 @@ export class TicketLineOrmEntity {
   @PrimaryColumn({ type: 'uuid' })
   id!: string;
 
+  @Index('IDX_ticket_lines_ticket_id')
   @Column({ type: 'uuid', name: 'ticket_id' })
   ticketId!: string;
 
@@ -22,6 +24,7 @@ export class TicketLineOrmEntity {
   @JoinColumn({ name: 'ticket_id' })
   ticket?: TicketOrmEntity;
 
+  @Index('IDX_ticket_lines_label')
   @Column({ type: 'varchar', length: 40 })
   label!: string;
 

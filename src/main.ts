@@ -1,6 +1,7 @@
 import { ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
+import compression from 'compression';
 
 import { AppModule } from './app.module';
 import type { AppConfig } from './shared/infrastructure/config/env.config';
@@ -11,6 +12,12 @@ async function bootstrap() {
   const config = app.get(ConfigService<AppConfig, true>);
   const port = config.get('port', { infer: true });
   const corsOrigins = config.get('corsOrigins', { infer: true });
+
+  // gzip para responses >1KB. Impacto grande en listados de tickets y en el
+  // dashboard summary — payloads que van de 50-500KB comprimen 5-10x. Ahorra
+  // ancho de banda de Railway y baja el tiempo total del request para el
+  // cliente móvil (más importante que el CPU extra de comprimir).
+  app.use(compression());
 
   app.enableCors({
     // Empty list ⇒ reflect the request origin (convenient in dev + when the
