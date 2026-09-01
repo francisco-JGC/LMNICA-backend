@@ -5,7 +5,7 @@ import { ValidationError } from '../../../../shared/domain/errors/domain.error';
 import { MovementType } from '../value-objects/movement-type';
 
 export interface MovementProps {
-  salePointId: string;
+  salePointId: string | null;
   type: MovementType;
   /** Always non-negative. Sign of contribution is derived from `type`. */
   amount: number;
@@ -18,6 +18,10 @@ export interface MovementProps {
    * feature son `null`.
    */
   clientRequestId: string | null;
+  /** Linked seller for seller-level movements. Null for sucursal movements. */
+  sellerId: string | null;
+  /** True when this movement represents a prize payment to a customer. */
+  isPrizePayment: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -28,13 +32,15 @@ export class Movement extends AggregateRoot<MovementProps> {
   }
 
   static create(input: {
-    salePointId: string;
+    salePointId: string | null;
     type: MovementType;
     amount: number;
     description?: string;
     occurredAt?: Date;
     createdById: string | null;
     clientRequestId?: string | null;
+    sellerId?: string | null;
+    isPrizePayment?: boolean;
   }): Movement {
     if (!Number.isInteger(input.amount) || input.amount < 0) {
       throw new ValidationError('amount must be a non-negative integer');
@@ -48,6 +54,8 @@ export class Movement extends AggregateRoot<MovementProps> {
       occurredAt: input.occurredAt ?? now,
       createdById: input.createdById,
       clientRequestId: input.clientRequestId ?? null,
+      sellerId: input.sellerId ?? null,
+      isPrizePayment: input.isPrizePayment ?? false,
       createdAt: now,
       updatedAt: now,
     });
@@ -57,7 +65,7 @@ export class Movement extends AggregateRoot<MovementProps> {
     return new Movement(id, props);
   }
 
-  get salePointId(): string {
+  get salePointId(): string | null {
     return this.props.salePointId;
   }
 
@@ -83,6 +91,14 @@ export class Movement extends AggregateRoot<MovementProps> {
 
   get clientRequestId(): string | null {
     return this.props.clientRequestId;
+  }
+
+  get sellerId(): string | null {
+    return this.props.sellerId;
+  }
+
+  get isPrizePayment(): boolean {
+    return this.props.isPrizePayment;
   }
 
   get createdAt(): Date {

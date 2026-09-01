@@ -3,7 +3,9 @@ import { MovementType } from '../../domain/value-objects/movement-type';
 
 export interface MovementOutput {
   id: string;
-  salePointId: string;
+  salePointId: string | null;
+  sellerId: string | null;
+  isPrizePayment: boolean;
   type: MovementType;
   amount: number;
   description: string;
@@ -16,6 +18,8 @@ export interface MovementOutput {
 export const toMovementOutput = (movement: Movement): MovementOutput => ({
   id: movement.id,
   salePointId: movement.salePointId,
+  sellerId: movement.sellerId,
+  isPrizePayment: movement.isPrizePayment,
   type: movement.type,
   amount: movement.amount,
   description: movement.description,

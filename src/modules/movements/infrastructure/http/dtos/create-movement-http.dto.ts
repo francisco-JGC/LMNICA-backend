@@ -1,5 +1,6 @@
 import { Type } from 'class-transformer';
 import {
+  IsBoolean,
   IsDateString,
   IsEnum,
   IsInt,
@@ -13,8 +14,15 @@ import {
 import { MovementType } from '../../../domain/value-objects/movement-type';
 
 export class CreateMovementHttpDto {
+  /** Requerido para movimientos de sucursal. Omitir cuando se envía sellerId. */
+  @IsOptional()
   @IsUUID()
-  salePointId!: string;
+  salePointId?: string;
+
+  /** UUID del vendedor para movimientos de vendedor. Mutuamente excluyente con salePointId. */
+  @IsOptional()
+  @IsUUID()
+  sellerId?: string;
 
   @IsEnum(MovementType)
   type!: MovementType;
@@ -33,11 +41,11 @@ export class CreateMovementHttpDto {
   @IsDateString()
   occurredAt?: string;
 
-  /**
-   * UUID v4 opcional para dedupear reintentos. Ver comentario del use
-   * case. Se acepta como opcional para no romper clientes antiguos.
-   */
   @IsOptional()
   @IsUUID()
   clientRequestId?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  isPrizePayment?: boolean;
 }

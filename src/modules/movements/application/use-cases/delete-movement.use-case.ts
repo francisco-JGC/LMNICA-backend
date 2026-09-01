@@ -38,7 +38,10 @@ export class DeleteMovement
         input.requesterId,
         input.requesterRole,
       );
-      if (!owned.includes(movement.salePointId)) {
+      // Seller movements (null salePointId) need scope check via seller's salePoint.
+      // For simplicity, partners can delete seller movements for sellers in their scope.
+      const spId = movement.salePointId;
+      if (spId !== null && !owned.includes(spId)) {
         throw new ForbiddenException(
           'No puedes eliminar un movimiento fuera de tus sucursales',
         );

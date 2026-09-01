@@ -10,6 +10,10 @@ import {
   type SalePointsRepository,
 } from '../../../sale-points/domain/repositories/sale-points.repository';
 import { PartnerScopeService } from '../../../sale-points/application/services/partner-scope.service';
+import {
+  USERS_REPOSITORY,
+  type UsersRepository,
+} from '../../../users/domain/repositories/users.repository';
 import { UserRole } from '../../../users/domain/value-objects/user-role';
 import { Movement } from '../../domain/entities/movement.entity';
 import {
@@ -22,19 +26,16 @@ import { toMovementOutput, type MovementOutput } from '../dtos/movement.output';
 export interface CreateMovementInput {
   requesterId: string;
   requesterRole: UserRole;
-  salePointId: string;
+  /** Required for sucursal movements. Omit when sellerId is provided. */
+  salePointId?: string;
+  /** When set, creates a seller-level movement (cobro, ajuste, prize payment). */
+  sellerId?: string | null;
+  isPrizePayment?: boolean;
   type: MovementType;
   amount: number;
   description?: string;
   /** Optional — defaults to now. */
   occurredAt?: Date;
-  /**
-   * UUID v4 generado por el cliente para dedupear reintentos. Si dos
-   * requests llegan con el mismo id (doble-click, retry por timeout, o
-   * load balancer duplicando en réplicas horizontales), el backend
-   * devuelve el mismo movement en vez de crear duplicados. Legacy
-   * clients que no lo mandan siguen funcionando (crean sin dedupe).
-   */
   clientRequestId?: string | null;
 }
 
@@ -47,15 +48,12 @@ export class CreateMovement
     private readonly movements: MovementsRepository,
     @Inject(SALE_POINTS_REPOSITORY)
     private readonly salePoints: SalePointsRepository,
+    @Inject(USERS_REPOSITORY)
+    private readonly users: UsersRepository,
     private readonly scope: PartnerScopeService,
   ) {}
 
   async execute(input: CreateMovementInput): Promise<MovementOutput> {
-    // Idempotencia (mismo patrón que `CreateTicket`): si el cliente mandó
-    // un requestId y ya existe un movement con ese id, devolvemos ese
-    // mismo movement. Cubre "click en Guardar dos veces mientras el
-    // server tardaba" y "load balancer reintentó por timeout". Corre
-    // antes de las validaciones costosas para minimizar trabajo redundante.
     if (input.clientRequestId) {
       const existing = await this.movements.findByClientRequestId(
         input.clientRequestId,
@@ -67,26 +65,55 @@ export class CreateMovement
       throw new ForbiddenException('Los vendedores no crean movimientos');
     }
 
-    const salePoint = await this.salePoints.findById(input.salePointId);
-    if (!salePoint) throw new NotFoundError('SalePoint', input.salePointId);
-
-    // Partner: only their own sucursales.
-    if (input.requesterRole === UserRole.PARTNER) {
-      const owned = await this.scope.getAccessibleSalePointIds(
-        input.requesterId,
-        input.requesterRole,
-      );
-      if (!owned.includes(input.salePointId)) {
-        throw new ForbiddenException('Esa sucursal no te pertenece');
-      }
-    }
-
     if (!Number.isInteger(input.amount) || input.amount < 0) {
       throw new ValidationError('amount debe ser un entero no negativo');
     }
 
+    let effectiveSalePointId: string | null = null;
+
+    if (input.sellerId) {
+      // Seller movement: resolve scope via the seller's sucursal.
+      const seller = await this.users.findById(input.sellerId);
+      if (!seller) throw new NotFoundError('User', input.sellerId);
+
+      if (input.requesterRole === UserRole.PARTNER) {
+        if (!seller.salePointId) {
+          throw new ForbiddenException('Ese vendedor no pertenece a ninguna sucursal tuya');
+        }
+        const owned = await this.scope.getAccessibleSalePointIds(
+          input.requesterId,
+          input.requesterRole,
+        );
+        if (!owned.includes(seller.salePointId)) {
+          throw new ForbiddenException('Ese vendedor no te pertenece');
+        }
+      }
+      // Seller movements don't have a sale_point_id — they live at seller level.
+      effectiveSalePointId = null;
+    } else {
+      // Sucursal movement — salePointId required.
+      if (!input.salePointId) {
+        throw new ValidationError('salePointId es requerido cuando no se especifica sellerId');
+      }
+      const salePoint = await this.salePoints.findById(input.salePointId);
+      if (!salePoint) throw new NotFoundError('SalePoint', input.salePointId);
+
+      if (input.requesterRole === UserRole.PARTNER) {
+        const owned = await this.scope.getAccessibleSalePointIds(
+          input.requesterId,
+          input.requesterRole,
+        );
+        if (!owned.includes(input.salePointId)) {
+          throw new ForbiddenException('Esa sucursal no te pertenece');
+        }
+      }
+      effectiveSalePointId = input.salePointId;
+    }
+
     const movement = Movement.create({
-      salePointId: input.salePointId,
+      salePointId: effectiveSalePointId,
+      sellerId: input.sellerId ?? null,
+      isPrizePayment: input.isPrizePayment ?? false,
       type: input.type,
       amount: input.amount,
       description: input.description,

@@ -19,12 +19,12 @@ export class MovementOrmEntity {
   id!: string;
 
   @Index()
-  @Column({ type: 'uuid', name: 'sale_point_id' })
-  salePointId!: string;
+  @Column({ type: 'uuid', name: 'sale_point_id', nullable: true })
+  salePointId!: string | null;
 
-  @ManyToOne(() => SalePointOrmEntity, { onDelete: 'CASCADE' })
+  @ManyToOne(() => SalePointOrmEntity, { onDelete: 'CASCADE', nullable: true })
   @JoinColumn({ name: 'sale_point_id' })
-  salePoint?: SalePointOrmEntity;
+  salePoint?: SalePointOrmEntity | null;
 
   @Index()
   @Column({ type: 'varchar', length: 20 })
@@ -46,6 +46,17 @@ export class MovementOrmEntity {
   @ManyToOne(() => UserOrmEntity, { onDelete: 'SET NULL' })
   @JoinColumn({ name: 'created_by_id' })
   createdBy?: UserOrmEntity | null;
+
+  @Index({ where: 'seller_id IS NOT NULL' })
+  @Column({ type: 'uuid', name: 'seller_id', nullable: true })
+  sellerId!: string | null;
+
+  @ManyToOne(() => UserOrmEntity, { onDelete: 'SET NULL', nullable: true })
+  @JoinColumn({ name: 'seller_id' })
+  seller?: UserOrmEntity | null;
+
+  @Column({ type: 'boolean', name: 'is_prize_payment', default: false })
+  isPrizePayment!: boolean;
 
   /**
    * UUID generado por el cliente para dedupear reintentos. Índice UNIQUE
