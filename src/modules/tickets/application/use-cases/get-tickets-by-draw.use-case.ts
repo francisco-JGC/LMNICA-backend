@@ -93,8 +93,8 @@ export class GetTicketsByDraw
       WHERE ($1::uuid IS NULL OR t.seller_id     = $1::uuid)
         AND ($2::uuid IS NULL OR t.sale_point_id = $2::uuid)
         AND ($3::uuid IS NULL OR t.game_id       = $3::uuid)
-        AND ($4::timestamptz IS NULL OR t.created_at >= $4::timestamptz)
-        AND ($5::timestamptz IS NULL OR t.created_at <  $5::timestamptz)
+        AND ($4::timestamptz IS NULL OR t.draw_at >= $4::timestamptz)
+        AND ($5::timestamptz IS NULL OR t.draw_at <  $5::timestamptz)
         AND t.sale_point_id = ANY($6::uuid[])
       GROUP BY t.game_id, t.draw_at, dr.winning_number
       ORDER BY t.draw_at DESC
@@ -117,8 +117,8 @@ export class GetTicketsByDraw
       salePointId: input.salePointId,
       salePointIds: partnerScope,
       gameId: input.gameId,
-      from: input.from,
-      to: input.to,
+      drawFrom: input.from,
+      drawTo: input.to,
     });
 
     return rows.map<TicketsByDrawItem>((r) => {
@@ -141,8 +141,8 @@ export class GetTicketsByDraw
     salePointId?: string;
     salePointIds: string[];
     gameId?: string;
-    from?: Date;
-    to?: Date;
+    drawFrom?: Date;
+    drawTo?: Date;
   }): Promise<Map<string, number>> {
     const tickets = await this.tickets.findMany({
       status: TicketStatus.VALID,
@@ -150,8 +150,8 @@ export class GetTicketsByDraw
       salePointId: filters.salePointId,
       salePointIds: filters.salePointIds,
       gameId: filters.gameId,
-      from: filters.from,
-      to: filters.to,
+      drawFrom: filters.drawFrom,
+      drawTo: filters.drawTo,
       limit: 100_000,
       offset: 0,
     });

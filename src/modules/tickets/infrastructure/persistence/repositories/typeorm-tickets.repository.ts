@@ -86,7 +86,13 @@ export class TypeOrmTicketsRepository implements TicketsRepository {
     }
     if (filters.gameId) base.gameId = filters.gameId;
     if (filters.status) base.status = filters.status;
-    if (filters.from && filters.to) {
+    if (filters.drawFrom && filters.drawTo) {
+      base.drawAt = Between(filters.drawFrom, filters.drawTo);
+    } else if (filters.drawFrom) {
+      base.drawAt = MoreThanOrEqual(filters.drawFrom);
+    } else if (filters.drawTo) {
+      base.drawAt = LessThanOrEqual(filters.drawTo);
+    } else if (filters.from && filters.to) {
       base.createdAt = Between(filters.from, filters.to);
     } else if (filters.from) {
       base.createdAt = MoreThanOrEqual(filters.from);
