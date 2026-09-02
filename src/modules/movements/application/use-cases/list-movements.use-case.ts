@@ -52,6 +52,12 @@ export class ListMovements
       return { items: [], page: input.page, limit: input.limit, total: 0 };
     }
 
+    // Enforce scope: if salePointId is outside the accessible list, return empty.
+    // This prevents a partner from bypassing scope by sending an arbitrary ID.
+    if (input.salePointId && !accessible.includes(input.salePointId)) {
+      return { items: [], page: input.page, limit: input.limit, total: 0 };
+    }
+
     const filters = {
       salePointId: input.salePointId,
       salePointIds: accessible,
