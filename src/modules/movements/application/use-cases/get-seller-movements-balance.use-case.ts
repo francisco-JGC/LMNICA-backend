@@ -38,7 +38,31 @@ export class GetSellerMovementsBalance
   async execute(
     input: GetSellerMovementsBalanceInput,
   ): Promise<SellerMovementsBalanceOutput> {
-    if (input.requesterRole === UserRole.SELLER) return { items: [] };
+    if (input.requesterRole === UserRole.SELLER) {
+      const rows = await this.dataSource.query<RawRow[]>(
+        `
+        SELECT
+          m.seller_id,
+          COALESCE(SUM(CASE WHEN m.type = 'deposit'    THEN m.amount ELSE 0 END), 0)::bigint AS cobros,
+          COALESCE(SUM(CASE WHEN m.type = 'withdrawal' THEN m.amount ELSE 0 END), 0)::bigint AS credits,
+          COALESCE(SUM(CASE WHEN m.is_prize_payment = true THEN m.amount ELSE 0 END), 0)::bigint AS prize_payments
+        FROM movements m
+        WHERE m.seller_id = $1::uuid
+          AND ($2::timestamptz IS NULL OR m.occurred_at >= $2::timestamptz)
+          AND ($3::timestamptz IS NULL OR m.occurred_at <  $3::timestamptz)
+        GROUP BY m.seller_id
+        `,
+        [input.requesterId, input.from ?? null, input.to ?? null],
+      );
+      return {
+        items: rows.map((r) => ({
+          sellerId: r.seller_id,
+          cobros: Number(r.cobros),
+          credits: Number(r.credits),
+          prizePayments: Number(r.prize_payments),
+        })),
+      };
+    }
 
     const partnerScope = await this.scope.getAccessibleSalePointIds(
       input.requesterId,
