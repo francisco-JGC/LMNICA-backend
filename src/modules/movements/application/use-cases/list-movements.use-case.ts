@@ -39,9 +39,21 @@ export class ListMovements
   ) {}
 
   async execute(input: ListMovementsInput): Promise<ListMovementsOutput> {
-    // Sellers never see movements.
+    // Sellers see only their own movements (by sellerId).
     if (input.requesterRole === UserRole.SELLER) {
-      return { items: [], page: input.page, limit: input.limit, total: 0 };
+      const filters = {
+        sellerId: input.requesterId,
+        type: input.type,
+        from: input.from,
+        to: input.to,
+        limit: input.limit,
+        offset: (input.page - 1) * input.limit,
+      };
+      const [items, total] = await Promise.all([
+        this.movements.findMany(filters),
+        this.movements.countMany(filters),
+      ]);
+      return { items: items.map(toMovementOutput), page: input.page, limit: input.limit, total };
     }
 
     const accessible = await this.scope.getAccessibleSalePointIds(

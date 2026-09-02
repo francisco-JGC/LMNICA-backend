@@ -7,6 +7,8 @@ export interface FindMovementsFilters {
   salePointId?: string;
   /** Restrict to movements in these sucursales (partner scoping). Empty = no rows. */
   salePointIds?: string[];
+  /** When set, filter by seller — bypasses salePoint scoping entirely. */
+  sellerId?: string;
   type?: MovementType;
   /** Filter by `occurred_at` inclusive. */
   from?: Date;

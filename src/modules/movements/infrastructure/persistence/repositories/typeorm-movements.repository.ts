@@ -66,11 +66,7 @@ export class TypeOrmMovementsRepository implements MovementsRepository {
     filters: FindMovementsFilters,
   ): FindOptionsWhere<MovementOrmEntity> {
     const where: FindOptionsWhere<MovementOrmEntity> = {};
-    if (filters.salePointId) {
-      where.salePointId = filters.salePointId;
-    } else if (filters.salePointIds && filters.salePointIds.length > 0) {
-      where.salePointId = In(filters.salePointIds);
-    }
+    if (filters.sellerId) where.sellerId = filters.sellerId;
     if (filters.type) where.type = filters.type;
     if (filters.from && filters.to) {
       where.occurredAt = Between(filters.from, filters.to);
@@ -78,6 +74,13 @@ export class TypeOrmMovementsRepository implements MovementsRepository {
       where.occurredAt = MoreThanOrEqual(filters.from);
     } else if (filters.to) {
       where.occurredAt = LessThanOrEqual(filters.to);
+    }
+    // When filtering by seller, skip salePoint scoping entirely.
+    if (filters.sellerId) return where;
+    if (filters.salePointId) {
+      where.salePointId = filters.salePointId;
+    } else if (filters.salePointIds && filters.salePointIds.length > 0) {
+      where.salePointId = In(filters.salePointIds);
     }
     return where;
   }

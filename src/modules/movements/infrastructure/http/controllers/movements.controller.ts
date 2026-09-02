@@ -107,6 +107,7 @@ export class MovementsController {
   }
 
   @Get()
+  @Roles(UserRole.ADMIN, UserRole.PARTNER, UserRole.SELLER)
   list(
     @CurrentUser() user: RequestUser,
     @Query() query: ListMovementsQueryDto,
