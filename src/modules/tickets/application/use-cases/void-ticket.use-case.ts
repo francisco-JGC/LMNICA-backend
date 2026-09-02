@@ -41,11 +41,13 @@ export class VoidTicket implements UseCase<VoidTicketInput, TicketOutput> {
     const ticket = await this.tickets.findById(input.id);
     if (!ticket) throw new NotFoundError('Ticket', input.id);
 
+    const isAdmin = input.requesterRole === UserRole.ADMIN;
+
     const executed = await this.drawResults.findByGameAndDraw(
       ticket.gameId,
       ticket.drawAt,
     );
-    if (executed) {
+    if (executed && !isAdmin) {
       throw new ValidationError(
         'El sorteo ya se corrió, el ticket no se puede anular',
       );
@@ -53,7 +55,7 @@ export class VoidTicket implements UseCase<VoidTicketInput, TicketOutput> {
 
     const now = new Date();
     const minutesUntilDraw = ticket.minutesUntilDraw(now);
-    if (minutesUntilDraw <= ticket.cutoffMinutes) {
+    if (!isAdmin && minutesUntilDraw <= ticket.cutoffMinutes) {
       throw new ValidationError(
         `Ticket cannot be voided within ${ticket.cutoffMinutes} minutes of the draw`,
       );
