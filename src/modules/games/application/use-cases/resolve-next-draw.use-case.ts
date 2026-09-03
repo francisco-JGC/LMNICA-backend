@@ -55,7 +55,21 @@ export class ResolveNextDraw
     const nowWall = toBusinessWallClock(input.at);
     const nowMinutes = nowWall.hour * 60 + nowWall.minute;
 
+    // If every active schedule is pinned to a specific day-of-week (none are
+    // null = "daily"), this game only runs on certain days.  When today is not
+    // one of those days, reject immediately instead of returning a draw from a
+    // future week — ticket sales are only allowed on the scheduled day itself.
+    const allDaySpecific = active.every((s) => s.dayOfWeek !== null);
+    if (allDaySpecific && !active.some((s) => s.appliesTo(nowWall.dayOfWeek))) {
+      throw new ValidationError(
+        `Game "${game.slug}" no tiene sorteos programados para hoy`,
+      );
+    }
+
     for (let offset = 0; offset <= LOOK_AHEAD_DAYS; offset++) {
+      // For day-specific games, never look beyond today: a draw scheduled for
+      // a future day means we are not in a sale window right now.
+      if (offset > 0 && allDaySpecific) break;
       // Land at noon-ish so we can safely observe the target date's DOW in
       // BUSINESS_TZ without any DST edge cases at midnight.
       const anchor = fromBusinessWallClock(
