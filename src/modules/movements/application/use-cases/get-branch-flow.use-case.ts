@@ -8,10 +8,24 @@ import {
   ValidationError,
 } from '../../../../shared/domain/errors/domain.error';
 import {
+  DRAW_RESULTS_REPOSITORY,
+  type DrawResultsRepository,
+} from '../../../games/domain/repositories/draw-results.repository';
+import {
+  GAMES_REPOSITORY,
+  type GamesRepository,
+} from '../../../games/domain/repositories/games.repository';
+import {
   SALE_POINTS_REPOSITORY,
   type SalePointsRepository,
 } from '../../../sale-points/domain/repositories/sale-points.repository';
 import { PartnerScopeService } from '../../../sale-points/application/services/partner-scope.service';
+import { TicketEvaluator } from '../../../tickets/application/services/ticket-evaluator.service';
+import {
+  TICKETS_REPOSITORY,
+  type TicketsRepository,
+} from '../../../tickets/domain/repositories/tickets.repository';
+import { TicketStatus } from '../../../tickets/domain/value-objects/ticket-status';
 import { UserRole } from '../../../users/domain/value-objects/user-role';
 import type { MovementType } from '../../domain/value-objects/movement-type';
 import type {
@@ -39,11 +53,11 @@ interface RawRow {
 }
 
 /**
- * Chronological, per-sucursal timeline combining ticket sales, prize
- * payouts and manually-registered movements. One SQL round trip via
- * UNION ALL so pagination and sorting stay database-side.
- *
- * A single sucursal is required (this report only makes sense scoped).
+ * Chronological, per-sucursal timeline combining ticket sales, evaluated
+ * prize payouts and manually-registered movements. Prizes are computed via
+ * TicketEvaluator (same logic as billing/branch-totals) filtered by draw_at
+ * in the requested range, so the timeline shows when prizes were actually
+ * awarded (at draw time), not based on the deprecated paid_at flag.
  */
 @Injectable()
 export class GetBranchFlow
@@ -53,6 +67,13 @@ export class GetBranchFlow
     @InjectDataSource() private readonly dataSource: DataSource,
     @Inject(SALE_POINTS_REPOSITORY)
     private readonly salePoints: SalePointsRepository,
+    @Inject(TICKETS_REPOSITORY)
+    private readonly tickets: TicketsRepository,
+    @Inject(DRAW_RESULTS_REPOSITORY)
+    private readonly drawResults: DrawResultsRepository,
+    @Inject(GAMES_REPOSITORY)
+    private readonly games: GamesRepository,
+    private readonly evaluator: TicketEvaluator,
     private readonly scope: PartnerScopeService,
   ) {}
 
@@ -80,6 +101,7 @@ export class GetBranchFlow
       }
     }
 
+    // Ticket sales + movements in one SQL round-trip.
     const rows = await this.dataSource.query<RawRow[]>(
       `
       SELECT
@@ -95,22 +117,6 @@ export class GetBranchFlow
         AND t.status = 'valid'
         AND ($2::timestamptz IS NULL OR t.created_at >= $2::timestamptz)
         AND ($3::timestamptz IS NULL OR t.created_at <  $3::timestamptz)
-
-      UNION ALL
-
-      SELECT
-        'prize_payout'::text AS kind,
-        t.paid_at            AS at,
-        t.paid_prize::bigint AS amount,
-        t.folio              AS folio,
-        NULL::text           AS movement_type,
-        ''::text             AS description,
-        t.id::text           AS ref_id
-      FROM tickets t
-      WHERE t.sale_point_id = $1::uuid
-        AND t.paid_at IS NOT NULL
-        AND ($2::timestamptz IS NULL OR t.paid_at >= $2::timestamptz)
-        AND ($3::timestamptz IS NULL OR t.paid_at <  $3::timestamptz)
 
       UNION ALL
 
@@ -132,7 +138,7 @@ export class GetBranchFlow
       [input.salePointId, input.from ?? null, input.to ?? null],
     );
 
-    const items: BranchFlowItem[] = rows.map((r) => ({
+    const sqlItems: BranchFlowItem[] = rows.map((r) => ({
       kind: r.kind,
       at: r.at,
       amount: Number(r.amount),
@@ -142,6 +148,73 @@ export class GetBranchFlow
       refId: r.ref_id,
     }));
 
+    // Prize events: tickets with draw_at in range, evaluated against results.
+    const prizeItems = await this.computePrizeEvents(
+      input.salePointId,
+      input.from,
+      input.to,
+    );
+
+    // Merge and re-sort chronologically (both sources are internally sorted).
+    const items = [...sqlItems, ...prizeItems].sort(
+      (a, b) => (a.at as Date).getTime() - (b.at as Date).getTime(),
+    );
+
     return { items };
+  }
+
+  /**
+   * Evaluates winning tickets whose draw_at falls in [from, to). Returns one
+   * prize_payout BranchFlowItem per winning ticket, timestamped at draw_at.
+   */
+  private async computePrizeEvents(
+    salePointId: string,
+    from?: Date,
+    to?: Date,
+  ): Promise<BranchFlowItem[]> {
+    const ticketList = await this.tickets.findMany({
+      status: TicketStatus.VALID,
+      salePointId,
+      drawFrom: from,
+      drawTo: to,
+      limit: 100_000,
+      offset: 0,
+    });
+    if (ticketList.length === 0) return [];
+
+    let minDrawAt = ticketList[0].drawAt;
+    let maxDrawAt = ticketList[0].drawAt;
+    for (const t of ticketList) {
+      if (t.drawAt < minDrawAt) minDrawAt = t.drawAt;
+      if (t.drawAt > maxDrawAt) maxDrawAt = t.drawAt;
+    }
+
+    const [draws, gamesAll] = await Promise.all([
+      this.drawResults.findMany({ from: minDrawAt, to: maxDrawAt }),
+      this.games.findAll({ onlyActive: false }),
+    ]);
+    const drawByKey = new Map(
+      draws.map((d) => [`${d.gameId}|${d.drawAt.toISOString()}`, d]),
+    );
+    const gameById = new Map(gamesAll.map((g) => [g.id, g]));
+
+    const items: BranchFlowItem[] = [];
+    for (const t of ticketList) {
+      const game = gameById.get(t.gameId) ?? null;
+      const draw = drawByKey.get(`${t.gameId}|${t.drawAt.toISOString()}`) ?? null;
+      const ev = this.evaluator.evaluateWith(t, game, draw);
+      if (ev.totalPrize > 0) {
+        items.push({
+          kind: 'prize_payout',
+          at: t.drawAt,
+          amount: ev.totalPrize,
+          folio: t.folio,
+          movementType: null,
+          description: game?.name ?? '',
+          refId: t.id,
+        });
+      }
+    }
+    return items;
   }
 }
