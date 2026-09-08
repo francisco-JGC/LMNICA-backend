@@ -86,7 +86,25 @@ export class TypeOrmTicketsRepository implements TicketsRepository {
     }
     if (filters.gameId) base.gameId = filters.gameId;
     if (filters.status) base.status = filters.status;
-    if (filters.drawFrom && filters.drawTo) {
+    if (filters.drawTime) {
+      // When a time-of-day filter is active, combine it with any draw_at date
+      // range in a single Raw expression so neither condition overwrites the
+      // other. A plain `base.drawAt = Raw(...)` after setting Between() would
+      // silently discard the date range.
+      if (filters.drawFrom && filters.drawTo) {
+        base.drawAt = Raw(
+          (alias) =>
+            `${alias} BETWEEN :dfrom AND :dto AND to_char(${alias} AT TIME ZONE '${BUSINESS_TZ}', 'HH24:MI') = :drawTime`,
+          { dfrom: filters.drawFrom, dto: filters.drawTo, drawTime: filters.drawTime },
+        );
+      } else {
+        base.drawAt = Raw(
+          (alias) =>
+            `to_char(${alias} AT TIME ZONE '${BUSINESS_TZ}', 'HH24:MI') = :drawTime`,
+          { drawTime: filters.drawTime },
+        );
+      }
+    } else if (filters.drawFrom && filters.drawTo) {
       base.drawAt = Between(filters.drawFrom, filters.drawTo);
     } else if (filters.drawFrom) {
       base.drawAt = MoreThanOrEqual(filters.drawFrom);
@@ -98,15 +116,6 @@ export class TypeOrmTicketsRepository implements TicketsRepository {
       base.createdAt = MoreThanOrEqual(filters.from);
     } else if (filters.to) {
       base.createdAt = LessThanOrEqual(filters.to);
-    }
-    if (filters.drawTime) {
-      // Match "wall-clock time in Managua" — same schedule (e.g. 11:00)
-      // across every day in the from/to range.
-      base.drawAt = Raw(
-        (alias) =>
-          `to_char(${alias} AT TIME ZONE '${BUSINESS_TZ}', 'HH24:MI') = :drawTime`,
-        { drawTime: filters.drawTime },
-      );
     }
 
     const term = filters.search?.trim();

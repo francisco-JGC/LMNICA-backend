@@ -83,8 +83,11 @@ export class ListWinningTickets
       salePointIds: partnerScope,
       gameId: input.gameId,
       status: TicketStatus.VALID,
-      from: isSearching ? undefined : input.from,
-      to: isSearching ? undefined : input.to,
+      // Filter by drawAt (when the draw happens), not createdAt (when the
+      // ticket was issued). A ticket created yesterday for today's draw must
+      // appear in today's winners — filtering by createdAt would miss it.
+      drawFrom: isSearching ? undefined : input.from,
+      drawTo: isSearching ? undefined : input.to,
       drawTime: isSearching ? undefined : input.drawTime,
       search: isSearching ? searchTerm : undefined,
       // Alineado con `GetMovementsBalance.computeWonBySalePoint` y
