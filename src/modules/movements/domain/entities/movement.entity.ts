@@ -42,8 +42,13 @@ export class Movement extends AggregateRoot<MovementProps> {
     sellerId?: string | null;
     isPrizePayment?: boolean;
   }): Movement {
-    if (!Number.isInteger(input.amount) || input.amount < 0) {
-      throw new ValidationError('amount must be a non-negative integer');
+    const isAdjustment = input.type === MovementType.ADJUSTMENT;
+    if (!Number.isInteger(input.amount) || (!isAdjustment && input.amount < 0)) {
+      throw new ValidationError(
+        isAdjustment
+          ? 'amount must be an integer'
+          : 'amount must be a non-negative integer',
+      );
     }
     const now = new Date();
     return new Movement(randomUUID(), {

@@ -53,6 +53,7 @@ interface RawRow {
   deposits: string;
   withdrawals: string;
   expenses: string;
+  adjustments: string;
 }
 
 /**
@@ -121,7 +122,9 @@ export class GetMovementsBalance
             m.sale_point_id::text AS sale_point_id,
             COALESCE(SUM(CASE WHEN m.type = 'deposit'    THEN m.amount ELSE 0 END), 0)::bigint AS deposits,
             COALESCE(SUM(CASE WHEN m.type = 'withdrawal' THEN m.amount ELSE 0 END), 0)::bigint AS withdrawals,
-            COALESCE(SUM(CASE WHEN m.type = 'expense'    THEN m.amount ELSE 0 END), 0)::bigint AS expenses
+            COALESCE(SUM(CASE WHEN m.type = 'expense'    THEN m.amount ELSE 0 END), 0)::bigint AS expenses,
+            -- Adjustments carry their own sign (positive = ingreso, negative = egreso).
+            COALESCE(SUM(CASE WHEN m.type = 'adjustment' THEN m.amount ELSE 0 END), 0)::bigint AS adjustments
           FROM movements m
           WHERE ($1::uuid IS NULL OR m.sale_point_id = $1::uuid)
             AND ($2::timestamptz IS NULL OR m.occurred_at >= $2::timestamptz)
@@ -131,10 +134,11 @@ export class GetMovementsBalance
         )
       SELECT
         COALESCE(tf.sale_point_id, mf.sale_point_id) AS sale_point_id,
-        COALESCE(tf.billed, 0)::bigint      AS billed,
-        COALESCE(mf.deposits, 0)::bigint    AS deposits,
-        COALESCE(mf.withdrawals, 0)::bigint AS withdrawals,
-        COALESCE(mf.expenses, 0)::bigint    AS expenses
+        COALESCE(tf.billed, 0)::bigint        AS billed,
+        COALESCE(mf.deposits, 0)::bigint      AS deposits,
+        COALESCE(mf.withdrawals, 0)::bigint   AS withdrawals,
+        COALESCE(mf.expenses, 0)::bigint      AS expenses,
+        COALESCE(mf.adjustments, 0)::bigint   AS adjustments
       FROM ticket_flow tf
       FULL OUTER JOIN movement_flow mf ON mf.sale_point_id = tf.sale_point_id
       `,
@@ -188,6 +192,7 @@ export class GetMovementsBalance
       const deposits = Number(r.deposits);
       const withdrawals = Number(r.withdrawals);
       const expenses = Number(r.expenses);
+      const adjustments = Number(r.adjustments);
       // Salario del encargado: % configurado a nivel sucursal, aplicado
       // sobre lo facturado en el rango. El % vive en la sucursal (no en
       // el usuario) porque hay sucursales que las opera directamente el
@@ -198,17 +203,16 @@ export class GetMovementsBalance
       const pct = sp?.partnerPaymentPercentage ?? null;
       const partnerSalary =
         pct !== null ? Math.round((billed * pct) / 100) : null;
-      // Net descuenta `wonPrize` (premios de tickets que ganaron según los
-      // sorteos que ya cayeron) + salario del encargado — ambos son costos
-      // reales que reducen el dinero que le queda al owner de la operación.
-      // Tickets con sorteos pendientes contribuyen 0 a `wonPrize`.
+      // Net descuenta `wonPrize` + salario del encargado y suma `adjustments`
+      // con su propio signo (positivo = ingresa al net, negativo = reduce).
       const net =
         billed -
         wonPrize -
         (partnerSalary ?? 0) +
         deposits -
         withdrawals -
-        expenses;
+        expenses +
+        adjustments;
       return {
         salePointId: r.sale_point_id,
         salePointName: sp?.name ?? '—',
@@ -222,6 +226,7 @@ export class GetMovementsBalance
         deposits,
         withdrawals,
         expenses,
+        adjustments,
         net,
       };
     });

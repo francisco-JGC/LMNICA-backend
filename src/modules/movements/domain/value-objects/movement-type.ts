@@ -21,8 +21,9 @@ export enum MovementType {
 
 /**
  * Sign of each type in the cash-balance formula:
- * `net = sum(inflows) - sum(outflows)`. Opening/closing/adjustment don't
- * contribute to net directly — they're bookkeeping markers.
+ * `net = sum(inflows) - sum(outflows)`. Opening/closing don't contribute to
+ * net directly — they're informational bookkeeping markers. Adjustment uses
+ * the signed amount directly: positive = adds to net, negative = subtracts.
  */
 export const MOVEMENT_SIGN: Record<MovementType, 1 | -1 | 0> = {
   [MovementType.EXPENSE]: -1,
@@ -30,5 +31,5 @@ export const MOVEMENT_SIGN: Record<MovementType, 1 | -1 | 0> = {
   [MovementType.WITHDRAWAL]: -1,
   [MovementType.OPENING]: 0,
   [MovementType.CLOSING]: 0,
-  [MovementType.ADJUSTMENT]: 0,
+  [MovementType.ADJUSTMENT]: +1,
 };

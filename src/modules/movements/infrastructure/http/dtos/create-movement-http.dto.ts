@@ -9,6 +9,7 @@ import {
   IsUUID,
   MaxLength,
   Min,
+  ValidateIf,
 } from 'class-validator';
 
 import { MovementType } from '../../../domain/value-objects/movement-type';
@@ -29,6 +30,8 @@ export class CreateMovementHttpDto {
 
   @Type(() => Number)
   @IsInt()
+  // Adjustments may be negative (subtract from net); all other types must be >= 0.
+  @ValidateIf((o: CreateMovementHttpDto) => o.type !== MovementType.ADJUSTMENT)
   @Min(0)
   amount!: number;
 
