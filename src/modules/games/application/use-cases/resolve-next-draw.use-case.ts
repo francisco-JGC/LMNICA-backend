@@ -86,13 +86,24 @@ export class ResolveNextDraw
       for (const schedule of candidates) {
         const drawMinutes = schedule.toMinutes();
         const cutoffThreshold = drawMinutes - schedule.cutoffMinutes;
-        // `<` estricto: el minuto exacto del cutoff ya está bloqueado.
-        // Con sorteo a las 21:00 y cutoff de 2 min, cutoffThreshold = 1258
-        // (20:58). Al llegar 20:58, nowMinutes (1258) ya no es < 1258 →
-        // se salta al próximo sorteo. Semántica: "cutoff N min" = bloqueado
-        // desde el instante en que el reloj muestra HH:MM - N min.
-        const passesCutoff = offset > 0 || nowMinutes < cutoffThreshold;
-        if (!passesCutoff) continue;
+
+        if (offset === 0) {
+          if (nowMinutes >= drawMinutes) {
+            // Este sorteo ya ocurrió — saltar al siguiente del mismo día.
+            continue;
+          }
+          if (nowMinutes >= cutoffThreshold) {
+            // Estamos dentro de la ventana de cierre de ESTE sorteo.
+            // No avanzar al siguiente sorteo: el cutoff debe bloquear la
+            // venta completamente, no redirigirla al siguiente sorteo.
+            // Ejemplo: sorteo 11:00, cutoff 2 min → bloqueado desde 10:58.
+            // Sin este throw, el sistema crearía el boleto para el sorteo
+            // de las 2:00 PM, ignorando el cutoff efectivamente.
+            throw new ValidationError(
+              `Ventas cerradas: el sorteo de las ${schedule.drawTime} está en período de cierre (${schedule.cutoffMinutes} min). Intenta de nuevo después del sorteo.`,
+            );
+          }
+        }
 
         const [h, m] = schedule.drawTime.split(':').map(Number);
         const drawAt = fromBusinessWallClock(
