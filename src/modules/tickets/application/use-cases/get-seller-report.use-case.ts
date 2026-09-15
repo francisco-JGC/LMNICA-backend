@@ -124,15 +124,29 @@ export class GetSellerReport
       to: input.to,
     });
 
-    // Lista base de vendedores según los filtros — incluye a los que no
-    // vendieron nada en el rango, para que aparezcan en ceros en la UI.
-    // El SQL agregado devuelve solo los que sí vendieron, así que este
-    // fetch aparte es la fuente completa; hacemos merge abajo.
+    // Lista base: vendedores actualmente en el scope (incluye los que no
+    // vendieron nada en el rango para que aparezcan en ceros en la UI).
     const sellers = await this.resolveSellerScope({
       effectiveSellerId,
       salePointId: input.salePointId,
       salePointIds: effectiveScope,
     });
+
+    // Recuperar vendedores históricos que sí vendieron en el rango pero
+    // ya no están asignados a este scope (e.g. se movieron de sucursal).
+    // El SQL de tickets filtra por t.sale_point_id (denormalizado al crear),
+    // así que esos rows son históricamente correctos aunque el seller hoy
+    // esté en otra sucursal.
+    const currentSellerIds = new Set(sellers.map((s) => s.id));
+    const missingIds = rows
+      .map((r) => r.seller_id)
+      .filter((id) => !currentSellerIds.has(id));
+    if (missingIds.length > 0) {
+      const extra = await Promise.all(missingIds.map((id) => this.users.findById(id)));
+      for (const s of extra) {
+        if (s) sellers.push(s);
+      }
+    }
 
     if (sellers.length === 0) return { items: [] };
 
