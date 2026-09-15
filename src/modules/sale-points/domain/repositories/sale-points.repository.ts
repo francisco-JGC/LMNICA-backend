@@ -58,4 +58,11 @@ export interface SalePointsRepository {
     salePointId: string,
     partnerIds: string[],
   ): Promise<void>;
+  /**
+   * Hard-delete a sucursal by ID. The caller must ensure no referencing data
+   * exists (tickets, users, movements) before calling — the repository does
+   * not enforce this itself. `sale_point_assigned_partners` rows cascade-delete
+   * automatically via the DB FK.
+   */
+  deleteById(id: string): Promise<void>;
 }

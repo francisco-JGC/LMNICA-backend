@@ -135,6 +135,10 @@ export class TypeOrmSalePointsRepository implements SalePointsRepository {
     return map;
   }
 
+  async deleteById(id: string): Promise<void> {
+    await this.repo.delete(id);
+  }
+
   async setAssignedPartnerIds(
     salePointId: string,
     partnerIds: string[],

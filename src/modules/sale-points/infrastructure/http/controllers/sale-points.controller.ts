@@ -1,7 +1,10 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
+  HttpCode,
+  HttpStatus,
   Param,
   ParseUUIDPipe,
   Patch,
@@ -16,6 +19,7 @@ import { type RequestUser } from '../../../../auth/infrastructure/strategies/jwt
 import { UserRole } from '../../../../users/domain/value-objects/user-role';
 import { type SalePointOutput } from '../../../application/dtos/sale-point.output';
 import { CreateSalePoint } from '../../../application/use-cases/create-sale-point.use-case';
+import { DeleteSalePoint } from '../../../application/use-cases/delete-sale-point.use-case';
 import { ListAllSalePoints } from '../../../application/use-cases/list-all-sale-points.use-case';
 import { ListSalePointsForUser } from '../../../application/use-cases/list-sale-points-for-user.use-case';
 import { SetAssignedPartners } from '../../../application/use-cases/set-assigned-partners.use-case';
@@ -30,6 +34,7 @@ import { UpdateSalePointHttpDto } from '../dtos/update-sale-point-http.dto';
 export class SalePointsController {
   constructor(
     private readonly createSalePoint: CreateSalePoint,
+    private readonly deleteSalePoint: DeleteSalePoint,
     private readonly listAllSalePoints: ListAllSalePoints,
     private readonly listSalePointsForUser: ListSalePointsForUser,
     private readonly setAssignedPartners: SetAssignedPartners,
@@ -84,6 +89,15 @@ export class SalePointsController {
     @Body() dto: UpdateSalePointHttpDto,
   ): Promise<SalePointOutput> {
     return this.updateSalePoint.execute({ id, ...dto });
+  }
+
+  @Delete(':id')
+  @Roles(UserRole.ADMIN)
+  @HttpCode(HttpStatus.NO_CONTENT)
+  remove(
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<void> {
+    return this.deleteSalePoint.execute({ id });
   }
 
   // Bulk-replace the list of socios asignados (read-only visibility). The

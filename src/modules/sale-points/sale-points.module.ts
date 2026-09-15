@@ -4,6 +4,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { UsersModule } from '../users/users.module';
 import { SALE_POINTS_REPOSITORY } from './domain/repositories/sale-points.repository';
 import { CreateSalePoint } from './application/use-cases/create-sale-point.use-case';
+import { DeleteSalePoint } from './application/use-cases/delete-sale-point.use-case';
 import { ListAllSalePoints } from './application/use-cases/list-all-sale-points.use-case';
 import { ListSalePointsForUser } from './application/use-cases/list-sale-points-for-user.use-case';
 import { PartnerScopeService } from './application/services/partner-scope.service';
@@ -27,6 +28,7 @@ import { TypeOrmSalePointsRepository } from './infrastructure/persistence/reposi
   providers: [
     { provide: SALE_POINTS_REPOSITORY, useClass: TypeOrmSalePointsRepository },
     CreateSalePoint,
+    DeleteSalePoint,
     ListAllSalePoints,
     ListSalePointsForUser,
     PartnerScopeService,
