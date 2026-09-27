@@ -43,7 +43,7 @@ export class TypeOrmMovementsRepository implements MovementsRepository {
   async findMany(filters: FindMovementsFilters): Promise<Movement[]> {
     if (filters.salePointIds && filters.salePointIds.length === 0) return [];
 
-    if (filters.includeNullSalePoint && (filters.salePointId || filters.salePointIds?.length)) {
+    if (filters.salePointId || filters.salePointIds?.length) {
       const rows = await this.buildScopedQb(filters)
         .orderBy('m.occurredAt', 'DESC')
         .take(filters.limit)
@@ -64,7 +64,7 @@ export class TypeOrmMovementsRepository implements MovementsRepository {
   async countMany(filters: FindMovementsFilters): Promise<number> {
     if (filters.salePointIds && filters.salePointIds.length === 0) return 0;
 
-    if (filters.includeNullSalePoint && (filters.salePointId || filters.salePointIds?.length)) {
+    if (filters.salePointId || filters.salePointIds?.length) {
       return this.buildScopedQb(filters).getCount();
     }
 
