@@ -15,9 +15,11 @@ import type { RequestUser } from '../../../../auth/infrastructure/strategies/jwt
 import { UserRole } from '../../../../users/domain/value-objects/user-role';
 import type { SaleLimitByNumberOutput } from '../../../application/dtos/sale-limit-by-number.output';
 import { DeleteSaleLimitByNumber } from '../../../application/use-cases/delete-sale-limit-by-number.use-case';
+import { GetMinAmountsByNumber } from '../../../application/use-cases/get-min-amounts-by-number.use-case';
 import { ListSaleLimitsByNumber } from '../../../application/use-cases/list-sale-limits-by-number.use-case';
 import { UpsertSaleLimitByNumber } from '../../../application/use-cases/upsert-sale-limit-by-number.use-case';
 import { ListSaleLimitsByNumberQueryDto } from '../dtos/list-sale-limits-by-number-query.dto';
+import { MinAmountsByNumberQueryDto } from '../dtos/min-amounts-by-number-query.dto';
 import { UpsertSaleLimitByNumberHttpDto } from '../dtos/upsert-sale-limit-by-number-http.dto';
 
 @Controller('sale-limits-by-number')
@@ -26,7 +28,22 @@ export class SaleLimitsByNumberController {
     private readonly listUC: ListSaleLimitsByNumber,
     private readonly upsertUC: UpsertSaleLimitByNumber,
     private readonly deleteUC: DeleteSaleLimitByNumber,
+    private readonly minAmountsUC: GetMinAmountsByNumber,
   ) {}
+
+  @Get('min-amounts')
+  @Roles(UserRole.ADMIN, UserRole.PARTNER, UserRole.SELLER)
+  minAmounts(
+    @CurrentUser() user: RequestUser,
+    @Query() query: MinAmountsByNumberQueryDto,
+  ): Promise<Record<string, number>> {
+    return this.minAmountsUC.execute({
+      requesterId: user.id,
+      requesterRole: user.role,
+      gameId: query.gameId,
+      salePointId: query.salePointId,
+    });
+  }
 
   @Get()
   @Roles(UserRole.ADMIN, UserRole.PARTNER)

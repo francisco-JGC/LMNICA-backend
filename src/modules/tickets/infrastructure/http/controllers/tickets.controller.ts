@@ -2,6 +2,8 @@ import {
   Body,
   Controller,
   Get,
+  HttpCode,
+  HttpStatus,
   Param,
   ParseUUIDPipe,
   Post,
@@ -34,6 +36,7 @@ import {
   ListWinningTickets,
   type WinningTicketOutput,
 } from '../../../application/use-cases/list-winning-tickets.use-case';
+import { MarkTicketAsPaid } from '../../../application/use-cases/mark-ticket-as-paid.use-case';
 import { VoidTicket } from '../../../application/use-cases/void-ticket.use-case';
 import type { TicketOutput } from '../../../application/dtos/ticket.output';
 import { CreateTicketHttpDto } from '../dtos/create-ticket-http.dto';
@@ -64,6 +67,7 @@ export class TicketsController {
     private readonly voidTicketUseCase: VoidTicket,
     private readonly listWinningTickets: ListWinningTickets,
     private readonly evaluateTicketById: EvaluateTicketById,
+    private readonly markTicketAsPaid: MarkTicketAsPaid,
     private readonly getSellerReport: GetSellerReport,
     private readonly getBranchTotals: GetBranchTotals,
     private readonly getBillingByGame: GetBillingByGame,
@@ -256,6 +260,19 @@ export class TicketsController {
     @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<TicketOutput> {
     return this.findTicketById.execute({
+      id,
+      requesterId: user.id,
+      requesterRole: user.role,
+    });
+  }
+
+  @Post(':id/pay')
+  @HttpCode(HttpStatus.OK)
+  pay(
+    @CurrentUser() user: RequestUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<TicketOutput> {
+    return this.markTicketAsPaid.execute({
       id,
       requesterId: user.id,
       requesterRole: user.role,

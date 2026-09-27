@@ -70,6 +70,28 @@ export class Movement extends AggregateRoot<MovementProps> {
     return new Movement(id, props);
   }
 
+  update(input: {
+    type?: MovementType;
+    amount?: number;
+    description?: string;
+    occurredAt?: Date;
+    isPrizePayment?: boolean;
+  }): void {
+    if (input.amount !== undefined) {
+      if (!Number.isInteger(input.amount) || input.amount < 0) {
+        throw new ValidationError('amount must be a non-negative integer');
+      }
+      this.props.amount = input.amount;
+    }
+    if (input.type !== undefined) this.props.type = input.type;
+    if (input.description !== undefined)
+      this.props.description = input.description.trim();
+    if (input.occurredAt !== undefined) this.props.occurredAt = input.occurredAt;
+    if (input.isPrizePayment !== undefined)
+      this.props.isPrizePayment = input.isPrizePayment;
+    this.props.updatedAt = new Date();
+  }
+
   get salePointId(): string | null {
     return this.props.salePointId;
   }

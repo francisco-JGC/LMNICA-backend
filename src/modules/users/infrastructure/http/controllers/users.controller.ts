@@ -20,12 +20,14 @@ import {
   ListUsers,
   type ListUsersOutput,
 } from '../../../application/use-cases/list-users.use-case';
+import { UpdateMobileSalesProfile } from '../../../application/use-cases/update-mobile-sales-profile.use-case';
 import { UpdateUser } from '../../../application/use-cases/update-user.use-case';
 import { UserOutput } from '../../../application/dtos/user.output';
 import { UserRole } from '../../../domain/value-objects/user-role';
 import { BootstrapAdminHttpDto } from '../dtos/bootstrap-admin-http.dto';
 import { CreateUserHttpDto } from '../dtos/create-user-http.dto';
 import { ListUsersQueryDto } from '../dtos/list-users-query.dto';
+import { UpdateMobileSalesProfileHttpDto } from '../dtos/update-mobile-sales-profile-http.dto';
 import { UpdateUserHttpDto } from '../dtos/update-user-http.dto';
 
 @Controller('users')
@@ -35,6 +37,7 @@ export class UsersController {
     private readonly findUserById: FindUserById,
     private readonly listUsers: ListUsers,
     private readonly updateUser: UpdateUser,
+    private readonly updateMobileSalesProfile: UpdateMobileSalesProfile,
     private readonly bootstrapFirstAdmin: BootstrapFirstAdmin,
   ) {}
 
@@ -77,6 +80,24 @@ export class UsersController {
   @Roles(UserRole.ADMIN, UserRole.PARTNER)
   findOne(@Param('id', new ParseUUIDPipe()) id: string): Promise<UserOutput> {
     return this.findUserById.execute(id);
+  }
+
+  /**
+   * Debe vivir ANTES de @Patch(':id') para que Nest no lo interprete
+   * como un UUID param con valor literal "me".
+   */
+  @Patch('me/mobile-sales')
+  @Roles(UserRole.ADMIN)
+  updateMobileSales(
+    @CurrentUser() user: RequestUser,
+    @Body() dto: UpdateMobileSalesProfileHttpDto,
+  ): Promise<UserOutput> {
+    return this.updateMobileSalesProfile.execute({
+      requesterId: user.id,
+      requesterRole: user.role,
+      mobileSalesEnabled: dto.mobileSalesEnabled,
+      defaultSalePointId: dto.defaultSalePointId ?? null,
+    });
   }
 
   @Patch(':id')

@@ -5,6 +5,7 @@ import {
   Get,
   Param,
   ParseUUIDPipe,
+  Patch,
   Post,
   Query,
 } from '@nestjs/common';
@@ -26,11 +27,13 @@ import {
   ListMovements,
   type ListMovementsOutput,
 } from '../../../application/use-cases/list-movements.use-case';
+import { UpdateMovement } from '../../../application/use-cases/update-movement.use-case';
 import { BranchFlowQueryDto } from '../dtos/branch-flow-query.dto';
 import { CreateMovementHttpDto } from '../dtos/create-movement-http.dto';
 import { ListMovementsQueryDto } from '../dtos/list-movements-query.dto';
 import { MovementsBalanceQueryDto } from '../dtos/movements-balance-query.dto';
 import { SellerMovementsBalanceQueryDto } from '../dtos/seller-movements-balance-query.dto';
+import { UpdateMovementHttpDto } from '../dtos/update-movement-http.dto';
 
 @Controller('movements')
 @Roles(UserRole.ADMIN, UserRole.PARTNER)
@@ -39,6 +42,7 @@ export class MovementsController {
     private readonly createMovement: CreateMovement,
     private readonly listMovements: ListMovements,
     private readonly deleteMovement: DeleteMovement,
+    private readonly updateMovement: UpdateMovement,
     private readonly getMovementsBalance: GetMovementsBalance,
     private readonly getSellerMovementsBalance: GetSellerMovementsBalance,
     private readonly getBranchFlow: GetBranchFlow,
@@ -122,6 +126,24 @@ export class MovementsController {
       to: query.to ? new Date(query.to) : undefined,
       page: query.page,
       limit: query.limit,
+    });
+  }
+
+  @Patch(':id')
+  update(
+    @CurrentUser() user: RequestUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() dto: UpdateMovementHttpDto,
+  ): Promise<MovementOutput> {
+    return this.updateMovement.execute({
+      id,
+      requesterId: user.id,
+      requesterRole: user.role,
+      type: dto.type,
+      amount: dto.amount,
+      description: dto.description,
+      occurredAt: dto.occurredAt ? new Date(dto.occurredAt) : undefined,
+      isPrizePayment: dto.isPrizePayment,
     });
   }
 

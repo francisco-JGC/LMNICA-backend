@@ -11,6 +11,7 @@ import { GetBranchFlow } from './application/use-cases/get-branch-flow.use-case'
 import { GetMovementsBalance } from './application/use-cases/get-movements-balance.use-case';
 import { GetSellerMovementsBalance } from './application/use-cases/get-seller-movements-balance.use-case';
 import { ListMovements } from './application/use-cases/list-movements.use-case';
+import { UpdateMovement } from './application/use-cases/update-movement.use-case';
 import { MOVEMENTS_REPOSITORY } from './domain/repositories/movements.repository';
 import { MovementsController } from './infrastructure/http/controllers/movements.controller';
 import { MovementOrmEntity } from './infrastructure/persistence/entities/movement.orm-entity';
@@ -30,6 +31,7 @@ import { TypeOrmMovementsRepository } from './infrastructure/persistence/reposit
     CreateMovement,
     ListMovements,
     DeleteMovement,
+    UpdateMovement,
     GetMovementsBalance,
     GetSellerMovementsBalance,
     GetBranchFlow,

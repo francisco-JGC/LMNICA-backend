@@ -23,6 +23,7 @@ import { GetTicketsByDraw } from './application/use-cases/get-tickets-by-draw.us
 import { GetTicketsSummary } from './application/use-cases/get-tickets-summary.use-case';
 import { ListTickets } from './application/use-cases/list-tickets.use-case';
 import { ListWinningTickets } from './application/use-cases/list-winning-tickets.use-case';
+import { MarkTicketAsPaid } from './application/use-cases/mark-ticket-as-paid.use-case';
 import { VoidTicket } from './application/use-cases/void-ticket.use-case';
 import { TICKETS_REPOSITORY } from './domain/repositories/tickets.repository';
 import { TicketsController } from './infrastructure/http/controllers/tickets.controller';
@@ -58,6 +59,7 @@ import { TimestampFolioGenerator } from './infrastructure/services/timestamp-fol
     FindTicketByIdForScan,
     FindTicketByFolio,
     VoidTicket,
+    MarkTicketAsPaid,
     TicketEvaluator,
     ListWinningTickets,
     EvaluateTicketById,
