@@ -28,4 +28,21 @@ export interface UsersRepository {
   findByIds(ids: string[]): Promise<User[]>;
   count(options: Omit<FindUsersOptions, 'limit' | 'offset'>): Promise<number>;
   countAll(): Promise<number>;
+  /** Counts all tickets and movements belonging to a seller. */
+  getTransferCounts(
+    userId: string,
+  ): Promise<{ ticketCount: number; movementCount: number }>;
+  /** Counts tickets/movements for a seller that are NOT in their current branch. */
+  getSyncCounts(
+    userId: string,
+    currentSalePointId: string,
+  ): Promise<{ ticketCount: number; movementCount: number }>;
+  /**
+   * Moves all tickets and movements for a seller to the given branch,
+   * in idempotent 500-row chunks. Returns the count of records moved.
+   */
+  transferBranch(
+    userId: string,
+    newSalePointId: string,
+  ): Promise<{ ticketsMoved: number; movementsMoved: number }>;
 }

@@ -7,7 +7,11 @@ import { BootstrapFirstAdmin } from './application/use-cases/bootstrap-first-adm
 import { CreateUser } from './application/use-cases/create-user.use-case';
 import { FindUserById } from './application/use-cases/find-user-by-id.use-case';
 import { FindUserByUsername } from './application/use-cases/find-user-by-username.use-case';
+import { GetSyncPreview } from './application/use-cases/get-sync-preview.use-case';
+import { GetTransferPreview } from './application/use-cases/get-transfer-preview.use-case';
 import { ListUsers } from './application/use-cases/list-users.use-case';
+import { SyncSellerBranch } from './application/use-cases/sync-seller-branch.use-case';
+import { TransferSellerBranch } from './application/use-cases/transfer-seller-branch.use-case';
 import { UpdateMobileSalesProfile } from './application/use-cases/update-mobile-sales-profile.use-case';
 import { UpdateUser } from './application/use-cases/update-user.use-case';
 import { USERS_REPOSITORY } from './domain/repositories/users.repository';
@@ -19,9 +23,6 @@ import { BcryptPasswordHasher } from './infrastructure/services/bcrypt-password-
 @Module({
   imports: [
     TypeOrmModule.forFeature([UserOrmEntity]),
-    // SalePointsModule imports UsersModule for CreateSalePoint validation,
-    // and UsersModule now depends on it for PartnerScopeService (used in
-    // ListUsers to scope by sucursales). Break the cycle with forwardRef.
     forwardRef(() => SalePointsModule),
   ],
   controllers: [UsersController],
@@ -31,7 +32,11 @@ import { BcryptPasswordHasher } from './infrastructure/services/bcrypt-password-
     CreateUser,
     FindUserById,
     FindUserByUsername,
+    GetSyncPreview,
+    GetTransferPreview,
     ListUsers,
+    SyncSellerBranch,
+    TransferSellerBranch,
     UpdateUser,
     UpdateMobileSalesProfile,
     BootstrapFirstAdmin,
