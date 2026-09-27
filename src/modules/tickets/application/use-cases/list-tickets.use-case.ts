@@ -10,6 +10,10 @@ import {
   type GamesRepository,
 } from '../../../games/domain/repositories/games.repository';
 import { PartnerScopeService } from '../../../sale-points/application/services/partner-scope.service';
+import {
+  USERS_REPOSITORY,
+  type UsersRepository,
+} from '../../../users/domain/repositories/users.repository';
 import { UserRole } from '../../../users/domain/value-objects/user-role';
 import {
   TICKETS_REPOSITORY,
@@ -51,6 +55,7 @@ export class ListTickets implements UseCase<ListTicketsInput, ListTicketsOutput>
     @Inject(DRAW_RESULTS_REPOSITORY)
     private readonly drawResults: DrawResultsRepository,
     @Inject(GAMES_REPOSITORY) private readonly games: GamesRepository,
+    @Inject(USERS_REPOSITORY) private readonly users: UsersRepository,
     private readonly evaluator: TicketEvaluator,
     private readonly scope: PartnerScopeService,
   ) {}
@@ -111,7 +116,8 @@ export class ListTickets implements UseCase<ListTicketsInput, ListTicketsOutput>
         uniquePairs.set(key, { gameId: ticket.gameId, drawAt: ticket.drawAt });
       }
     }
-    const [drawByKey, gamesAll] = await Promise.all([
+    const uniqueSellerIds = [...new Set(tickets.map((t) => t.sellerId))];
+    const [drawByKey, gamesAll, sellersAll] = await Promise.all([
       Promise.all(
         Array.from(uniquePairs.entries()).map(async ([key, pair]) => {
           const result = await this.drawResults.findByGameAndDraw(
@@ -122,8 +128,10 @@ export class ListTickets implements UseCase<ListTicketsInput, ListTicketsOutput>
         }),
       ).then((entries) => new Map(entries)),
       this.games.findAll({ onlyActive: false }),
+      this.users.findByIds(uniqueSellerIds),
     ]);
     const gameById = new Map(gamesAll.map((g) => [g.id, g]));
+    const sellerNameById = new Map(sellersAll.map((u) => [u.id, u.name]));
 
     // Evaluate cada ticket una sola vez: acumulamos totales y armamos los
     // items del response en el mismo loop.
@@ -155,7 +163,7 @@ export class ListTickets implements UseCase<ListTicketsInput, ListTicketsOutput>
         totalBilled += ticket.total;
         if (evaluation.totalPrize > 0) totalWonPrize += evaluation.totalPrize;
       }
-      items.push(toTicketOutput(ticket, draw !== null, wonForItem));
+      items.push(toTicketOutput(ticket, draw !== null, wonForItem, null, sellerNameById.get(ticket.sellerId) ?? null));
     }
 
     return {

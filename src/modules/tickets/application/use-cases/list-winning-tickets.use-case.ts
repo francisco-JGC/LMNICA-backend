@@ -11,7 +11,15 @@ import {
   GAMES_REPOSITORY,
   type GamesRepository,
 } from '../../../games/domain/repositories/games.repository';
+import {
+  SALE_POINTS_REPOSITORY,
+  type SalePointsRepository,
+} from '../../../sale-points/domain/repositories/sale-points.repository';
 import { PartnerScopeService } from '../../../sale-points/application/services/partner-scope.service';
+import {
+  USERS_REPOSITORY,
+  type UsersRepository,
+} from '../../../users/domain/repositories/users.repository';
 import { UserRole } from '../../../users/domain/value-objects/user-role';
 import {
   TICKETS_REPOSITORY,
@@ -53,6 +61,9 @@ export class ListWinningTickets
     @Inject(GAMES_REPOSITORY) private readonly games: GamesRepository,
     @Inject(DRAW_RESULTS_REPOSITORY)
     private readonly results: DrawResultsRepository,
+    @Inject(USERS_REPOSITORY) private readonly users: UsersRepository,
+    @Inject(SALE_POINTS_REPOSITORY)
+    private readonly salePoints: SalePointsRepository,
     private readonly evaluator: TicketEvaluator,
     private readonly scope: PartnerScopeService,
   ) {}
@@ -124,6 +135,16 @@ export class ListWinningTickets
       resultsByKey.set(this.resultKey(r.gameId, r.drawAt), r);
     }
 
+    const uniqueSellerIds = [...new Set(items.map((t) => t.sellerId))];
+    const [sellerUsers, allSalePoints] = await Promise.all([
+      this.users.findByIds(uniqueSellerIds),
+      this.salePoints.findAll({ includeInactive: true }),
+    ]);
+    const sellerNameById = new Map<string, string>();
+    for (const u of sellerUsers) sellerNameById.set(u.id, u.name);
+    const salePointNameById = new Map<string, string>();
+    for (const sp of allSalePoints) salePointNameById.set(sp.id, sp.name);
+
     const winners: WinningTicketOutput[] = [];
     for (const ticket of items) {
       const game = gamesById.get(ticket.gameId) ?? null;
@@ -132,7 +153,13 @@ export class ListWinningTickets
       const evaluation = this.evaluator.evaluateWith(ticket, game, result);
       if (!evaluation.isWinner) continue;
       winners.push({
-        ticket: toTicketOutput(ticket),
+        ticket: toTicketOutput(
+          ticket,
+          true,
+          evaluation.totalPrize,
+          salePointNameById.get(ticket.salePointId) ?? null,
+          sellerNameById.get(ticket.sellerId) ?? null,
+        ),
         totalPrize: evaluation.totalPrize,
         lines: evaluation.lines,
       });

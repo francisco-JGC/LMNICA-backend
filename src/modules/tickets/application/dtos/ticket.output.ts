@@ -15,7 +15,9 @@ export interface TicketOutput {
   folio: string;
   gameId: string;
   salePointId: string;
+  salePointName: string | null;
   sellerId: string;
+  sellerName: string | null;
   client: string | null;
   status: TicketStatus;
   voidedAt: Date | null;
@@ -32,6 +34,8 @@ export interface TicketOutput {
    * si el ticket no salió ganador. Reemplaza el concepto de "pagado".
    */
   wonPrize: number;
+  isPaid: boolean;
+  paidAt: Date | null;
   lines: TicketLineOutput[];
   createdAt: Date;
   updatedAt: Date;
@@ -41,12 +45,16 @@ export const toTicketOutput = (
   ticket: Ticket,
   drawExecuted = false,
   wonPrize = 0,
+  salePointName: string | null = null,
+  sellerName: string | null = null,
 ): TicketOutput => ({
   id: ticket.id,
   folio: ticket.folio,
   gameId: ticket.gameId,
   salePointId: ticket.salePointId,
+  salePointName,
   sellerId: ticket.sellerId,
+  sellerName,
   client: ticket.client,
   status: ticket.status,
   voidedAt: ticket.voidedAt,
@@ -58,6 +66,8 @@ export const toTicketOutput = (
   cutoffMinutes: ticket.cutoffMinutes,
   drawExecuted,
   wonPrize,
+  isPaid: ticket.isPaid,
+  paidAt: ticket.paidAt,
   lines: ticket.lines.map((line) => ({
     label: line.label,
     amount: line.amount,
