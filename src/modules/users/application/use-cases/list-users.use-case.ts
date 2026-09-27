@@ -14,6 +14,8 @@ export interface ListUsersInput {
   requesterRole: UserRole;
   role?: UserRole;
   search?: string;
+  /** Restrict results to a specific sale point. Combined with partner scoping. */
+  salePointId?: string;
   limit: number;
   offset: number;
 }
@@ -52,6 +54,17 @@ export class ListUsers implements UseCase<ListUsersInput, ListUsersOutput> {
       if (salePointIds.length === 0) {
         return { items: [], total: 0, limit: input.limit, offset: input.offset };
       }
+    }
+
+    // Narrow to a specific sale point when the caller requests it.
+    // For partners, verify the requested ID is within their allowed set first.
+    if (input.salePointId) {
+      if (input.requesterRole === UserRole.PARTNER) {
+        if (!salePointIds!.includes(input.salePointId)) {
+          return { items: [], total: 0, limit: input.limit, offset: input.offset };
+        }
+      }
+      salePointIds = [input.salePointId];
     }
 
     const filters = {

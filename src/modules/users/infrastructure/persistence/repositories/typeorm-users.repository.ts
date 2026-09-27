@@ -154,6 +154,7 @@ export class TypeOrmUsersRepository implements UsersRepository {
       base.salePointId = In(options.salePointIds);
     }
     if (options.createdById) base.createdById = options.createdById;
+    if (options.isActive !== undefined) base.isActive = options.isActive;
     const search = options.search?.trim();
     if (!search) return base;
     // Match on either username or display name, case-insensitive.

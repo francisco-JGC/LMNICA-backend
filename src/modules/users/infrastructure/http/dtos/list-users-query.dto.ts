@@ -4,6 +4,7 @@ import {
   IsInt,
   IsOptional,
   IsString,
+  IsUUID,
   Max,
   MaxLength,
   Min,
@@ -20,6 +21,10 @@ export class ListUsersQueryDto {
   @IsString()
   @MaxLength(120)
   search?: string;
+
+  @IsOptional()
+  @IsUUID()
+  salePointId?: string;
 
   // Techo alto (1000) porque varias vistas del web filtran vendedores
   // localmente por sucursal — necesitan traer todos los sellers en scope

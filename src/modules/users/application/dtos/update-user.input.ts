@@ -2,6 +2,7 @@ import { UserRole } from '../../domain/value-objects/user-role';
 
 export interface UpdateUserInput {
   id: string;
+  username?: string;
   name?: string;
   role?: UserRole;
   isActive?: boolean;

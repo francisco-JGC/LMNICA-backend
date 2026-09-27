@@ -2,18 +2,24 @@ import { Inject, Injectable } from '@nestjs/common';
 
 import type { UseCase } from '../../../../shared/application/use-case';
 import { PartnerScopeService } from '../../../sale-points/application/services/partner-scope.service';
+import {
+  USERS_REPOSITORY,
+  type UsersRepository,
+} from '../../../users/domain/repositories/users.repository';
 import { UserRole } from '../../../users/domain/value-objects/user-role';
 import {
   MOVEMENTS_REPOSITORY,
   type MovementsRepository,
 } from '../../domain/repositories/movements.repository';
 import { MovementType } from '../../domain/value-objects/movement-type';
+import type { Movement } from '../../domain/entities/movement.entity';
 import { toMovementOutput, type MovementOutput } from '../dtos/movement.output';
 
 export interface ListMovementsInput {
   requesterId: string;
   requesterRole: UserRole;
   salePointId?: string;
+  sellerId?: string;
   type?: MovementType;
   from?: Date;
   to?: Date;
@@ -35,6 +41,7 @@ export class ListMovements
   constructor(
     @Inject(MOVEMENTS_REPOSITORY)
     private readonly movements: MovementsRepository,
+    @Inject(USERS_REPOSITORY) private readonly users: UsersRepository,
     private readonly scope: PartnerScopeService,
   ) {}
 
@@ -53,7 +60,12 @@ export class ListMovements
         this.movements.findMany(filters),
         this.movements.countMany(filters),
       ]);
-      return { items: items.map(toMovementOutput), page: input.page, limit: input.limit, total };
+      return {
+        items: await this.withNames(items),
+        page: input.page,
+        limit: input.limit,
+        total,
+      };
     }
 
     const accessible = await this.scope.getAccessibleSalePointIds(
@@ -72,7 +84,12 @@ export class ListMovements
 
     const filters = {
       salePointId: input.salePointId,
+      sellerId: input.sellerId,
       salePointIds: accessible,
+      // Always include seller movements (salePointId IS NULL) attributed to
+      // their branch via the users table — whether filtering by a specific
+      // branch or listing all accessible ones.
+      includeNullSalePoint: true,
       type: input.type,
       from: input.from,
       to: input.to,
@@ -86,10 +103,29 @@ export class ListMovements
     ]);
 
     return {
-      items: items.map(toMovementOutput),
+      items: await this.withNames(items),
       page: input.page,
       limit: input.limit,
       total,
     };
+  }
+
+  private async withNames(items: Movement[]): Promise<MovementOutput[]> {
+    if (items.length === 0) return [];
+    const ids = new Set<string>();
+    for (const m of items) {
+      if (m.sellerId) ids.add(m.sellerId);
+      if (m.createdById) ids.add(m.createdById);
+    }
+    const users = await this.users.findByIds([...ids]);
+    const nameById = new Map<string, string>();
+    for (const u of users) nameById.set(u.id, u.name);
+    return items.map((m) =>
+      toMovementOutput(
+        m,
+        m.sellerId ? (nameById.get(m.sellerId) ?? null) : null,
+        m.createdById ? (nameById.get(m.createdById) ?? null) : null,
+      ),
+    );
   }
 }

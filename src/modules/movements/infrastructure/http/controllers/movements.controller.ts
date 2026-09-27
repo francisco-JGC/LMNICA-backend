@@ -78,6 +78,9 @@ export class MovementsController {
       salePointId: query.salePointId,
       from: query.from ? new Date(query.from) : undefined,
       to: query.to ? new Date(query.to) : undefined,
+      gameId: query.gameId,
+      sellerId: query.sellerId,
+      drawAt: query.drawAt ? new Date(query.drawAt) : undefined,
     });
   }
 
@@ -121,6 +124,7 @@ export class MovementsController {
       requesterId: user.id,
       requesterRole: user.role,
       salePointId: query.salePointId,
+      sellerId: query.sellerId,
       type: query.type,
       from: query.from ? new Date(query.from) : undefined,
       to: query.to ? new Date(query.to) : undefined,

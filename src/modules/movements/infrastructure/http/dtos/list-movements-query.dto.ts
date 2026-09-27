@@ -17,6 +17,10 @@ export class ListMovementsQueryDto {
   salePointId?: string;
 
   @IsOptional()
+  @IsUUID()
+  sellerId?: string;
+
+  @IsOptional()
   @IsEnum(MovementType)
   type?: MovementType;
 

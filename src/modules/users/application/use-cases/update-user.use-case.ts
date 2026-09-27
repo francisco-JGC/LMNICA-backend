@@ -78,7 +78,14 @@ export class UpdateUser implements UseCase<UpdateUserInput, UserOutput> {
       input = { ...input, salePointId: null };
     }
 
+    // If username is changing, verify it's not already taken by another user.
+    if (input.username !== undefined && input.username !== user.username) {
+      const taken = await this.users.findByUsername(input.username);
+      if (taken) throw new ValidationError('Ese nombre de usuario ya está en uso');
+    }
+
     const patch: Parameters<typeof user.update>[0] = {
+      username: input.username,
       name: input.name,
       role: input.role,
       isActive: input.isActive,

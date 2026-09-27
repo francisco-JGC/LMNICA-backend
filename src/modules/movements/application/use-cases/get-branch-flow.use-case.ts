@@ -40,6 +40,9 @@ export interface GetBranchFlowInput {
   salePointId: string;
   from?: Date;
   to?: Date;
+  gameId?: string;
+  sellerId?: string;
+  drawAt?: Date;
 }
 
 interface RawRow {
@@ -102,6 +105,7 @@ export class GetBranchFlow
     }
 
     // Ticket sales + movements in one SQL round-trip.
+    // $4/$5/$6 filter tickets only (movements have no game/seller/draw).
     const rows = await this.dataSource.query<RawRow[]>(
       `
       SELECT
@@ -117,6 +121,9 @@ export class GetBranchFlow
         AND t.status = 'valid'
         AND ($2::timestamptz IS NULL OR t.created_at >= $2::timestamptz)
         AND ($3::timestamptz IS NULL OR t.created_at <  $3::timestamptz)
+        AND ($4::uuid IS NULL OR t.game_id = $4::uuid)
+        AND ($5::uuid IS NULL OR t.seller_id = $5::uuid)
+        AND ($6::timestamptz IS NULL OR t.draw_at = $6::timestamptz)
 
       UNION ALL
 
@@ -129,13 +136,30 @@ export class GetBranchFlow
         m.description       AS description,
         m.id::text          AS ref_id
       FROM movements m
-      WHERE m.sale_point_id = $1::uuid
+      WHERE (
+        m.sale_point_id = $1::uuid
+        OR (
+          m.sale_point_id IS NULL
+          AND m.seller_id IS NOT NULL
+          AND EXISTS (
+            SELECT 1 FROM users u
+            WHERE u.id = m.seller_id AND u.sale_point_id = $1::uuid
+          )
+        )
+      )
         AND ($2::timestamptz IS NULL OR m.occurred_at >= $2::timestamptz)
         AND ($3::timestamptz IS NULL OR m.occurred_at <  $3::timestamptz)
 
       ORDER BY at ASC
       `,
-      [input.salePointId, input.from ?? null, input.to ?? null],
+      [
+        input.salePointId,
+        input.from ?? null,
+        input.to ?? null,
+        input.gameId ?? null,
+        input.sellerId ?? null,
+        input.drawAt ?? null,
+      ],
     );
 
     const sqlItems: BranchFlowItem[] = rows.map((r) => ({
@@ -153,6 +177,9 @@ export class GetBranchFlow
       input.salePointId,
       input.from,
       input.to,
+      input.gameId,
+      input.sellerId,
+      input.drawAt,
     );
 
     // Merge and re-sort chronologically (both sources are internally sorted).
@@ -171,6 +198,9 @@ export class GetBranchFlow
     salePointId: string,
     from?: Date,
     to?: Date,
+    gameId?: string,
+    sellerId?: string,
+    drawAt?: Date,
   ): Promise<BranchFlowItem[]> {
     const ticketList = await this.tickets.findMany({
       status: TicketStatus.VALID,
@@ -182,9 +212,18 @@ export class GetBranchFlow
     });
     if (ticketList.length === 0) return [];
 
-    let minDrawAt = ticketList[0].drawAt;
-    let maxDrawAt = ticketList[0].drawAt;
-    for (const t of ticketList) {
+    // Apply optional filters that findMany doesn't support natively.
+    const filtered = ticketList.filter(
+      (t) =>
+        (!gameId || t.gameId === gameId) &&
+        (!sellerId || t.sellerId === sellerId) &&
+        (!drawAt || t.drawAt.getTime() === drawAt.getTime()),
+    );
+    if (filtered.length === 0) return [];
+
+    let minDrawAt = filtered[0].drawAt;
+    let maxDrawAt = filtered[0].drawAt;
+    for (const t of filtered) {
       if (t.drawAt < minDrawAt) minDrawAt = t.drawAt;
       if (t.drawAt > maxDrawAt) maxDrawAt = t.drawAt;
     }
@@ -199,7 +238,7 @@ export class GetBranchFlow
     const gameById = new Map(gamesAll.map((g) => [g.id, g]));
 
     const items: BranchFlowItem[] = [];
-    for (const t of ticketList) {
+    for (const t of filtered) {
       const game = gameById.get(t.gameId) ?? null;
       const draw = drawByKey.get(`${t.gameId}|${t.drawAt.toISOString()}`) ?? null;
       const ev = this.evaluator.evaluateWith(t, game, draw);

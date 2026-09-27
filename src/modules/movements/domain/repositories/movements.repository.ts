@@ -9,6 +9,11 @@ export interface FindMovementsFilters {
   salePointIds?: string[];
   /** When set, filter by seller — bypasses salePoint scoping entirely. */
   sellerId?: string;
+  /**
+   * When true and no specific salePointId filter is active, also include
+   * seller-level movements (salePointId IS NULL).
+   */
+  includeNullSalePoint?: boolean;
   type?: MovementType;
   /** Filter by `occurred_at` inclusive. */
   from?: Date;

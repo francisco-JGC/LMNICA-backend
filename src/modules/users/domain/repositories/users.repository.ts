@@ -16,6 +16,7 @@ export interface FindUsersOptions {
    * scoping where a partner only sees their own recruits.
    */
   createdById?: string;
+  isActive?: boolean;
   limit: number;
   offset: number;
 }

@@ -12,4 +12,16 @@ export class BranchFlowQueryDto {
   @IsOptional()
   @IsDateString()
   to?: string;
+
+  @IsOptional()
+  @IsUUID()
+  gameId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  sellerId?: string;
+
+  @IsOptional()
+  @IsDateString()
+  drawAt?: string;
 }

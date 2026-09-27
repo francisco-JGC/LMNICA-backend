@@ -92,6 +92,7 @@ export class UsersController {
       requesterRole: user.role,
       role: query.role,
       search: query.search,
+      salePointId: query.salePointId,
       limit: query.limit ?? 20,
       offset: query.offset ?? 0,
     });

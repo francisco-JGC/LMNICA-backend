@@ -22,6 +22,12 @@ import { UserRole } from '../../../domain/value-objects/user-role';
 export class UpdateUserHttpDto {
   @IsOptional()
   @IsString()
+  @MaxLength(40)
+  @MinLength(3)
+  username?: string;
+
+  @IsOptional()
+  @IsString()
   @MaxLength(120)
   @MinLength(1)
   name?: string;
