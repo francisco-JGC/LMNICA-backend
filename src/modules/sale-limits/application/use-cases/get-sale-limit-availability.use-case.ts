@@ -93,6 +93,7 @@ export class GetSaleLimitAvailability
 
     return {
       limit: limit ? limit.amount : null,
+      maxPerTicket: limit ? limit.maxPerTicket : null,
       usage,
     };
   }

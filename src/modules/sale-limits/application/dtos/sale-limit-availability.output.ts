@@ -11,5 +11,6 @@
  */
 export interface SaleLimitAvailabilityOutput {
   limit: number | null;
+  maxPerTicket: number | null;
   usage: Record<string, number>;
 }
