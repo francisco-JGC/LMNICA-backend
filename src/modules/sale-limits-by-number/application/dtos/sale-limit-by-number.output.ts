@@ -6,6 +6,7 @@ export interface SaleLimitByNumberOutput {
   gameId: string;
   label: string;
   amount: number;
+  minAmount: number | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -18,6 +19,7 @@ export const toSaleLimitByNumberOutput = (
   gameId: entity.gameId,
   label: entity.label,
   amount: entity.amount,
+  minAmount: entity.minAmount,
   createdAt: entity.createdAt,
   updatedAt: entity.updatedAt,
 });

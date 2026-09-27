@@ -5,6 +5,7 @@ export interface SaleLimitOutput {
   gameId: string;
   salePointId: string;
   amount: number;
+  maxPerTicket: number | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -14,6 +15,7 @@ export const toSaleLimitOutput = (limit: SaleLimit): SaleLimitOutput => ({
   gameId: limit.gameId,
   salePointId: limit.salePointId,
   amount: limit.amount,
+  maxPerTicket: limit.maxPerTicket,
   createdAt: limit.createdAt,
   updatedAt: limit.updatedAt,
 });

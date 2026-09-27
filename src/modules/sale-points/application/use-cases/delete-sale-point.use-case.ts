@@ -41,7 +41,7 @@ export class DeleteSalePoint
         .then((r) => r[0]),
       this.dataSource
         .query<[{ tickets: string }]>(
-          `SELECT COUNT(*)::text AS tickets FROM tickets WHERE sale_point_id = $1`,
+          `SELECT COUNT(*)::text AS tickets FROM tickets WHERE sale_point_id = $1 AND status != 'voided'`,
           [input.id],
         )
         .then((r) => r[0]),

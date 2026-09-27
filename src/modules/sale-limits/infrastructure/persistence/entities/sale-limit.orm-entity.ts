@@ -37,6 +37,9 @@ export class SaleLimitOrmEntity {
   @Column({ type: 'integer' })
   amount!: number;
 
+  @Column({ type: 'integer', name: 'max_per_ticket', nullable: true })
+  maxPerTicket!: number | null;
+
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt!: Date;
 

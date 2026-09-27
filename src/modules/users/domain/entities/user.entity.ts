@@ -14,6 +14,8 @@ export interface UserProps {
   nationalId: string | null;
   paymentPercentage: number | null;
   salePointId: string | null;
+  mobileSalesEnabled: boolean;
+  defaultSalePointId: string | null;
   createdById: string | null;
   createdAt: Date;
   updatedAt: Date;
@@ -48,6 +50,8 @@ export class User extends AggregateRoot<UserProps> {
       nationalId: input.nationalId ?? null,
       paymentPercentage: input.paymentPercentage ?? null,
       salePointId: input.salePointId ?? null,
+      mobileSalesEnabled: false,
+      defaultSalePointId: null,
       createdById: input.createdById ?? null,
       createdAt: now,
       updatedAt: now,
@@ -63,6 +67,8 @@ export class User extends AggregateRoot<UserProps> {
     nationalId?: string | null;
     paymentPercentage?: number | null;
     salePointId?: string | null;
+    mobileSalesEnabled?: boolean;
+    defaultSalePointId?: string | null;
     hashedPassword?: string;
   }): void {
     if (patch.name !== undefined) this.props.name = patch.name;
@@ -76,6 +82,10 @@ export class User extends AggregateRoot<UserProps> {
       this.props.paymentPercentage = patch.paymentPercentage;
     if (patch.salePointId !== undefined)
       this.props.salePointId = patch.salePointId;
+    if (patch.mobileSalesEnabled !== undefined)
+      this.props.mobileSalesEnabled = patch.mobileSalesEnabled;
+    if (patch.defaultSalePointId !== undefined)
+      this.props.defaultSalePointId = patch.defaultSalePointId;
     if (patch.hashedPassword !== undefined)
       this.props.hashedPassword = patch.hashedPassword;
     this.props.updatedAt = new Date();
@@ -123,6 +133,14 @@ export class User extends AggregateRoot<UserProps> {
 
   get salePointId(): string | null {
     return this.props.salePointId;
+  }
+
+  get mobileSalesEnabled(): boolean {
+    return this.props.mobileSalesEnabled;
+  }
+
+  get defaultSalePointId(): string | null {
+    return this.props.defaultSalePointId;
   }
 
   get createdById(): string | null {

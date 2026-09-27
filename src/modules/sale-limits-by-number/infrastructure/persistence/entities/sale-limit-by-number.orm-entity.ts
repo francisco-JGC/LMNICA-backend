@@ -44,6 +44,9 @@ export class SaleLimitByNumberOrmEntity {
   @Column({ type: 'integer' })
   amount!: number;
 
+  @Column({ type: 'integer', name: 'min_amount', nullable: true })
+  minAmount!: number | null;
+
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt!: Date;
 

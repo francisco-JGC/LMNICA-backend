@@ -8,6 +8,7 @@ export class SaleLimitByNumberMapper {
       gameId: orm.gameId,
       label: orm.label,
       amount: orm.amount,
+      minAmount: orm.minAmount ?? null,
       createdAt: orm.createdAt,
       updatedAt: orm.updatedAt,
     });
@@ -20,6 +21,7 @@ export class SaleLimitByNumberMapper {
     orm.gameId = entity.gameId;
     orm.label = entity.label;
     orm.amount = entity.amount;
+    orm.minAmount = entity.minAmount;
     orm.createdAt = entity.createdAt;
     orm.updatedAt = entity.updatedAt;
     return orm;

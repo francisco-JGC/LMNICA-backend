@@ -53,6 +53,16 @@ export class UserOrmEntity {
   @JoinColumn({ name: 'sale_point_id' })
   salePoint?: SalePointOrmEntity | null;
 
+  @Column({ type: 'boolean', name: 'mobile_sales_enabled', default: false })
+  mobileSalesEnabled!: boolean;
+
+  @Column({ type: 'uuid', name: 'default_sale_point_id', nullable: true })
+  defaultSalePointId!: string | null;
+
+  @ManyToOne(() => SalePointOrmEntity, { onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'default_sale_point_id' })
+  defaultSalePoint?: SalePointOrmEntity | null;
+
   @Index()
   @Column({ type: 'uuid', name: 'created_by_id', nullable: true })
   createdById!: string | null;

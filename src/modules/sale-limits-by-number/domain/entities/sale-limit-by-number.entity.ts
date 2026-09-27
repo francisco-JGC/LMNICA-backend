@@ -14,6 +14,7 @@ export interface SaleLimitByNumberProps {
    */
   label: string;
   amount: number;
+  minAmount: number | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -28,6 +29,7 @@ export class SaleLimitByNumber extends AggregateRoot<SaleLimitByNumberProps> {
     gameId: string;
     label: string;
     amount: number;
+    minAmount?: number | null;
   }): SaleLimitByNumber {
     SaleLimitByNumber.assertValid(input.label, input.amount);
     const now = new Date();
@@ -36,6 +38,7 @@ export class SaleLimitByNumber extends AggregateRoot<SaleLimitByNumberProps> {
       gameId: input.gameId,
       label: input.label.trim(),
       amount: input.amount,
+      minAmount: input.minAmount ?? null,
       createdAt: now,
       updatedAt: now,
     });
@@ -65,6 +68,9 @@ export class SaleLimitByNumber extends AggregateRoot<SaleLimitByNumberProps> {
   }
   get amount(): number {
     return this.props.amount;
+  }
+  get minAmount(): number | null {
+    return this.props.minAmount;
   }
   get createdAt(): Date {
     return this.props.createdAt;

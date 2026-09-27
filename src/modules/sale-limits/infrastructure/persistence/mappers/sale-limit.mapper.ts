@@ -7,6 +7,7 @@ export class SaleLimitMapper {
       gameId: orm.gameId,
       salePointId: orm.salePointId,
       amount: orm.amount,
+      maxPerTicket: orm.maxPerTicket ?? null,
       createdAt: orm.createdAt,
       updatedAt: orm.updatedAt,
     });
@@ -18,6 +19,7 @@ export class SaleLimitMapper {
     entity.gameId = limit.gameId;
     entity.salePointId = limit.salePointId;
     entity.amount = limit.amount;
+    entity.maxPerTicket = limit.maxPerTicket;
     entity.createdAt = limit.createdAt;
     entity.updatedAt = limit.updatedAt;
     return entity;
