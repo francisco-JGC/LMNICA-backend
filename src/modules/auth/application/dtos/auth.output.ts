@@ -16,4 +16,5 @@ export interface AuthOutput {
 /** Response for `POST /auth/refresh`. */
 export interface RefreshOutput {
   accessToken: string;
+  refreshToken: string;
 }

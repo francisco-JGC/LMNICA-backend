@@ -42,7 +42,7 @@ export const envSchema = Joi.object({
   DB_NAME: Joi.string().optional(),
   JWT_SECRET: Joi.string().min(16).required(),
   JWT_EXPIRES_IN: Joi.string().default('24h'),
-  JWT_REFRESH_EXPIRES_IN: Joi.string().default('30d'),
+  JWT_REFRESH_EXPIRES_IN: Joi.string().default('365d'),
 }).custom((value, helpers) => {
   const hasUrl = Boolean(value.DATABASE_URL);
   const hasSplit = Boolean(
@@ -74,6 +74,6 @@ export const envLoader = (): AppConfig => ({
   jwt: {
     secret: process.env.JWT_SECRET!,
     expiresIn: process.env.JWT_EXPIRES_IN ?? '24h',
-    refreshExpiresIn: process.env.JWT_REFRESH_EXPIRES_IN ?? '30d',
+    refreshExpiresIn: process.env.JWT_REFRESH_EXPIRES_IN ?? '365d',
   },
 });
