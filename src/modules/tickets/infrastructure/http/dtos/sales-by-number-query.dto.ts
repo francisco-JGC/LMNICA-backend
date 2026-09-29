@@ -1,4 +1,4 @@
-import { IsDateString, IsOptional, IsUUID } from 'class-validator';
+import { IsDateString, IsOptional, IsString, IsUUID, Matches } from 'class-validator';
 
 export class SalesByNumberQueryDto {
   @IsOptional()
@@ -20,4 +20,9 @@ export class SalesByNumberQueryDto {
   @IsOptional()
   @IsDateString()
   to?: string;
+
+  @IsOptional()
+  @IsString()
+  @Matches(/^\d{2}:\d{2}$/)
+  drawTime?: string;
 }

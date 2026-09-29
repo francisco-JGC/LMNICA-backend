@@ -18,6 +18,8 @@ export interface GetSalesByNumberInput {
   sellerId?: string;
   from?: Date;
   to?: Date;
+  /** "HH:MM" wall-clock in America/Managua — filters by time-of-day of draw_at. */
+  drawTime?: string;
 }
 
 /**
@@ -79,6 +81,7 @@ export class GetSalesByNumber
         AND ($4::uuid IS NULL OR t.seller_id     = $4::uuid)
         AND ($5::timestamptz IS NULL OR t.created_at >= $5::timestamptz)
         AND ($6::timestamptz IS NULL OR t.created_at <  $6::timestamptz)
+        AND ($7::text IS NULL OR TO_CHAR(t.draw_at AT TIME ZONE 'America/Managua', 'HH24:MI') = $7::text)
       GROUP BY t.game_id, g.name, tl.label
       ORDER BY total_amount DESC, ticket_count DESC
       LIMIT 2000
@@ -90,6 +93,7 @@ export class GetSalesByNumber
         effectiveSellerId ?? null,
         input.from ?? null,
         input.to ?? null,
+        input.drawTime ?? null,
       ],
     );
 
