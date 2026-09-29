@@ -57,6 +57,8 @@ export class GetSalesByNumber
 
     const rows = await this.dataSource.query<
       Array<{
+        sale_point_id: string;
+        sale_point_name: string;
         game_id: string;
         game_name: string;
         label: string;
@@ -66,14 +68,17 @@ export class GetSalesByNumber
     >(
       `
       SELECT
+        t.sale_point_id,
+        sp.name AS sale_point_name,
         t.game_id,
         g.name AS game_name,
         tl.label,
         COUNT(*)::bigint         AS ticket_count,
         COALESCE(SUM(tl.amount), 0)::bigint AS total_amount
       FROM ticket_lines tl
-      JOIN tickets t ON t.id = tl.ticket_id
-      JOIN games   g ON g.id = t.game_id
+      JOIN tickets     t  ON t.id  = tl.ticket_id
+      JOIN games       g  ON g.id  = t.game_id
+      JOIN sale_points sp ON sp.id = t.sale_point_id
       WHERE t.status = 'valid'
         AND t.sale_point_id = ANY($1::uuid[])
         AND ($2::uuid IS NULL OR t.sale_point_id = $2::uuid)
@@ -82,7 +87,7 @@ export class GetSalesByNumber
         AND ($5::timestamptz IS NULL OR t.created_at >= $5::timestamptz)
         AND ($6::timestamptz IS NULL OR t.created_at <  $6::timestamptz)
         AND ($7::text IS NULL OR TO_CHAR(t.draw_at AT TIME ZONE 'America/Managua', 'HH24:MI') = $7::text)
-      GROUP BY t.game_id, g.name, tl.label
+      GROUP BY t.sale_point_id, sp.name, t.game_id, g.name, tl.label
       ORDER BY total_amount DESC, ticket_count DESC
       LIMIT 2000
       `,
@@ -98,6 +103,8 @@ export class GetSalesByNumber
     );
 
     const items: SalesByNumberItem[] = rows.map((r) => ({
+      salePointId: r.sale_point_id,
+      salePointName: r.sale_point_name,
       gameId: r.game_id,
       gameName: r.game_name,
       label: r.label,

@@ -1,4 +1,6 @@
 export interface SalesByNumberItem {
+  salePointId: string;
+  salePointName: string;
   /** ID del juego al que pertenece esta apuesta. */
   gameId: string;
   /** Nombre del juego (para render sin lookup extra en el cliente). */
