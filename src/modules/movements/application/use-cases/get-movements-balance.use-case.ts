@@ -45,6 +45,9 @@ export interface GetMovementsBalanceInput {
   salePointIds?: string[];
   from?: Date;
   to?: Date;
+  gameId?: string;
+  /** "HH:MM" en hora de Managua (UTC-6). */
+  drawTime?: string;
 }
 
 interface RawRow {
@@ -115,6 +118,8 @@ export class GetMovementsBalance
             AND ($2::timestamptz IS NULL OR t.created_at >= $2::timestamptz)
             AND ($3::timestamptz IS NULL OR t.created_at <  $3::timestamptz)
             AND t.sale_point_id = ANY($4::uuid[])
+            AND ($5::uuid IS NULL OR t.game_id = $5::uuid)
+            AND ($6::text IS NULL OR to_char(t.draw_at AT TIME ZONE 'America/Managua', 'HH24:MI') = $6::text)
           GROUP BY t.sale_point_id
         ),
         movement_flow AS (
@@ -147,10 +152,22 @@ export class GetMovementsBalance
         input.from ?? null,
         input.to ?? null,
         effectiveScope,
+        input.gameId ?? null,
+        input.drawTime ?? null,
       ],
     );
 
     if (rows.length === 0) return { items: [] };
+
+    // Cuando hay filtro de juego/sorteo, las sucursales que solo tienen
+    // movimientos (depósitos, retiros, etc.) pero no vendieron ese juego
+    // aparecen en el FULL JOIN con billed=0. Los excluimos para que el
+    // reporte muestre solo sucursales relevantes al filtro activo.
+    const activeRows =
+      input.gameId || input.drawTime
+        ? rows.filter((r) => Number(r.billed) > 0)
+        : rows;
+    if (activeRows.length === 0) return { items: [] };
 
     // Compute wonPrize per sucursal — evaluamos todos los tickets del rango
     // contra sus draw results (paid o no) usando el TicketEvaluator. La
@@ -161,10 +178,12 @@ export class GetMovementsBalance
       salePointIds: effectiveScope,
       from: input.from,
       to: input.to,
+      gameId: input.gameId,
+      drawTime: input.drawTime,
     });
 
     // Bulk-resolve sucursal + partner names.
-    const salePointIds = rows.map((r) => r.sale_point_id);
+    const salePointIds = activeRows.map((r) => r.sale_point_id);
     const salePoints = await Promise.all(
       salePointIds.map((id) => this.salePoints.findById(id)),
     );
@@ -185,7 +204,7 @@ export class GetMovementsBalance
     const partners = await this.users.findByIds(partnerIds);
     const partnerById = new Map(partners.map((p) => [p.id, p]));
 
-    const items: MovementsBalanceRow[] = rows.map((r) => {
+    const items: MovementsBalanceRow[] = activeRows.map((r) => {
       const sp = salePointById.get(r.sale_point_id);
       const billed = Number(r.billed);
       const wonPrize = wonBySalePoint.get(r.sale_point_id) ?? 0;
@@ -252,8 +271,10 @@ export class GetMovementsBalance
     salePointIds?: string[];
     from?: Date;
     to?: Date;
+    gameId?: string;
+    drawTime?: string;
   }): Promise<Map<string, number>> {
-    const tickets = await this.tickets.findMany({
+    const allTickets = await this.tickets.findMany({
       status: TicketStatus.VALID,
       salePointId: filters.salePointId,
       salePointIds: filters.salePointIds,
@@ -263,6 +284,18 @@ export class GetMovementsBalance
       // (día/semana/mes) es cientos-miles de tickets, no millones.
       limit: 100_000,
       offset: 0,
+    });
+
+    // Filtro in-memory por juego y sorteo (no están en el findMany del repo).
+    const tickets = allTickets.filter((t) => {
+      if (filters.gameId && t.gameId !== filters.gameId) return false;
+      if (filters.drawTime) {
+        const ms = t.drawAt.getTime() - 6 * 60 * 60 * 1000;
+        const d = new Date(ms);
+        const hhmm = `${d.getUTCHours().toString().padStart(2, '0')}:${d.getUTCMinutes().toString().padStart(2, '0')}`;
+        if (hhmm !== filters.drawTime) return false;
+      }
+      return true;
     });
     if (tickets.length === 0) return new Map();
 

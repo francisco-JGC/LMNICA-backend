@@ -37,6 +37,9 @@ export interface GetSellerReportInput {
   sellerId?: string;
   from?: Date;
   to?: Date;
+  gameId?: string;
+  /** "HH:MM" en hora de Managua (UTC-6). */
+  drawTime?: string;
 }
 
 interface RawRow {
@@ -103,6 +106,8 @@ export class GetSellerReport
         AND ($3::timestamptz IS NULL OR t.created_at >= $3::timestamptz)
         AND ($4::timestamptz IS NULL OR t.created_at <  $4::timestamptz)
         AND t.sale_point_id = ANY($5::uuid[])
+        AND ($6::uuid IS NULL OR t.game_id = $6::uuid)
+        AND ($7::text IS NULL OR to_char(t.draw_at AT TIME ZONE 'America/Managua', 'HH24:MI') = $7::text)
       GROUP BY t.seller_id
       `,
       [
@@ -111,8 +116,17 @@ export class GetSellerReport
         input.from ?? null,
         input.to ?? null,
         effectiveScope,
+        input.gameId ?? null,
+        input.drawTime ?? null,
       ],
     );
+
+    // Cuando hay filtro de juego/sorteo, excluimos vendedores con billed=0
+    // (no vendieron ese juego en el rango) para que el reporte sea relevante.
+    const activeRows =
+      input.gameId || input.drawTime
+        ? rows.filter((r) => Number(r.billed) > 0)
+        : rows;
 
     // wonPrize (paid o no) por vendedor — evaluamos los tickets contra
     // sus resultados. Ver `GetMovementsBalance.computeWonBySalePoint`.
@@ -122,6 +136,8 @@ export class GetSellerReport
       salePointIds: effectiveScope,
       from: input.from,
       to: input.to,
+      gameId: input.gameId,
+      drawTime: input.drawTime,
     });
 
     // Lista base: vendedores actualmente en el scope (incluye los que no
@@ -138,7 +154,7 @@ export class GetSellerReport
     // así que esos rows son históricamente correctos aunque el seller hoy
     // esté en otra sucursal.
     const currentSellerIds = new Set(sellers.map((s) => s.id));
-    const missingIds = rows
+    const missingIds = activeRows
       .map((r) => r.seller_id)
       .filter((id) => !currentSellerIds.has(id));
     if (missingIds.length > 0) {
@@ -150,7 +166,7 @@ export class GetSellerReport
 
     if (sellers.length === 0) return { items: [] };
 
-    const rowBySellerId = new Map(rows.map((r) => [r.seller_id, r]));
+    const rowBySellerId = new Map(activeRows.map((r) => [r.seller_id, r]));
 
     const items: SellerReportRow[] = sellers.map((seller) => {
       const r = rowBySellerId.get(seller.id);
@@ -170,12 +186,19 @@ export class GetSellerReport
       };
     });
 
+    // Cuando hay filtro de juego/sorteo, los vendedores que no vendieron ese
+    // juego en el rango tienen billed=0 — los excluimos del resultado.
+    const finalItems =
+      input.gameId || input.drawTime
+        ? items.filter((it) => it.billed > 0)
+        : items;
+
     // Sort by billed desc — highest earners first, matches how you read
     // payroll during a Sunday close-out. Los que están en 0 quedan al
     // final naturalmente.
-    items.sort((a, b) => b.billed - a.billed);
+    finalItems.sort((a, b) => b.billed - a.billed);
 
-    return { items };
+    return { items: finalItems };
   }
 
   /**
@@ -245,8 +268,10 @@ export class GetSellerReport
     salePointIds?: string[];
     from?: Date;
     to?: Date;
+    gameId?: string;
+    drawTime?: string;
   }): Promise<Map<string, number>> {
-    const tickets = await this.tickets.findMany({
+    const allTickets = await this.tickets.findMany({
       status: TicketStatus.VALID,
       sellerId: filters.sellerId,
       salePointId: filters.salePointId,
@@ -255,6 +280,18 @@ export class GetSellerReport
       to: filters.to,
       limit: 100_000,
       offset: 0,
+    });
+
+    // Filtro in-memory por juego y sorteo.
+    const tickets = allTickets.filter((t) => {
+      if (filters.gameId && t.gameId !== filters.gameId) return false;
+      if (filters.drawTime) {
+        const ms = t.drawAt.getTime() - 6 * 60 * 60 * 1000;
+        const d = new Date(ms);
+        const hhmm = `${d.getUTCHours().toString().padStart(2, '0')}:${d.getUTCMinutes().toString().padStart(2, '0')}`;
+        if (hhmm !== filters.drawTime) return false;
+      }
+      return true;
     });
     if (tickets.length === 0) return new Map();
 

@@ -169,6 +169,8 @@ export class TicketsController {
       sellerId: query.sellerId,
       from: query.from ? new Date(query.from) : undefined,
       to: query.to ? new Date(query.to) : undefined,
+      gameId: query.gameId,
+      drawTime: query.drawTime,
     });
   }
 
