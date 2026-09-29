@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { IsInt, IsNullable, IsOptional, IsUUID, Min } from 'class-validator';
+import { IsInt, IsOptional, IsUUID, Min } from 'class-validator';
 
 export class UpsertSaleLimitHttpDto {
   @IsUUID()
@@ -14,8 +14,6 @@ export class UpsertSaleLimitHttpDto {
   amount!: number;
 
   @IsOptional()
-  @IsNullable()
-  @Type(() => Number)
   @IsInt()
   @Min(1)
   maxPerTicket?: number | null;
