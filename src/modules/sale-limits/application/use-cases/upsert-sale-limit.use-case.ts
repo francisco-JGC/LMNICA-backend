@@ -31,6 +31,7 @@ export interface UpsertSaleLimitInput {
   gameId: string;
   salePointId: string;
   amount: number;
+  maxPerTicket?: number | null;
 }
 
 /**
@@ -84,6 +85,7 @@ export class UpsertSaleLimit
 
     if (existing) {
       existing.setAmount(input.amount);
+      existing.setMaxPerTicket(input.maxPerTicket ?? null);
       await this.limits.save(existing);
       return toSaleLimitOutput(existing);
     }
@@ -92,6 +94,7 @@ export class UpsertSaleLimit
       gameId: input.gameId,
       salePointId: input.salePointId,
       amount: input.amount,
+      maxPerTicket: input.maxPerTicket,
     });
     await this.limits.save(created);
     return toSaleLimitOutput(created);

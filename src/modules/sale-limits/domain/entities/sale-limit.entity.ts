@@ -50,6 +50,11 @@ export class SaleLimit extends AggregateRoot<SaleLimitProps> {
     this.props.updatedAt = new Date();
   }
 
+  setMaxPerTicket(value: number | null): void {
+    this.props.maxPerTicket = value;
+    this.props.updatedAt = new Date();
+  }
+
   get gameId(): string {
     return this.props.gameId;
   }

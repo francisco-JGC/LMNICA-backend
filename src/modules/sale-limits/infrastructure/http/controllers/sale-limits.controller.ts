@@ -69,6 +69,7 @@ export class SaleLimitsController {
       gameId: dto.gameId,
       salePointId: dto.salePointId,
       amount: dto.amount,
+      maxPerTicket: dto.maxPerTicket,
     });
   }
 
