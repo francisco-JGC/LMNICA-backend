@@ -12,34 +12,23 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  *     una sucursal el flag no tiene sentido activo. ON DELETE SET NULL
  *     para que borrar la sucursal no rompa la fila del admin.
  */
-export class AddUsersMobileSalesProfile1784100000000
-  implements MigrationInterface
-{
+export class AddUsersMobileSalesProfile1784100000000 implements MigrationInterface {
   name = 'AddUsersMobileSalesProfile1784100000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(
       `ALTER TABLE "users" ADD COLUMN "mobile_sales_enabled" boolean NOT NULL DEFAULT false`,
     );
-    await queryRunner.query(
-      `ALTER TABLE "users" ADD COLUMN "default_sale_point_id" uuid NULL`,
-    );
+    await queryRunner.query(`ALTER TABLE "users" ADD COLUMN "default_sale_point_id" uuid NULL`);
     await queryRunner.query(
       `ALTER TABLE "users" ADD CONSTRAINT "FK_users_default_sale_point_id" ` +
-        `FOREIGN KEY ("default_sale_point_id") ` +
-        `REFERENCES "sale_points"("id") ON DELETE SET NULL`,
+        `FOREIGN KEY ("default_sale_point_id") REFERENCES "sale_points"("id") ON DELETE SET NULL`,
     );
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
-    await queryRunner.query(
-      `ALTER TABLE "users" DROP CONSTRAINT "FK_users_default_sale_point_id"`,
-    );
-    await queryRunner.query(
-      `ALTER TABLE "users" DROP COLUMN "default_sale_point_id"`,
-    );
-    await queryRunner.query(
-      `ALTER TABLE "users" DROP COLUMN "mobile_sales_enabled"`,
-    );
+    await queryRunner.query(`ALTER TABLE "users" DROP CONSTRAINT "FK_users_default_sale_point_id"`);
+    await queryRunner.query(`ALTER TABLE "users" DROP COLUMN "default_sale_point_id"`);
+    await queryRunner.query(`ALTER TABLE "users" DROP COLUMN "mobile_sales_enabled"`);
   }
 }
