@@ -71,6 +71,7 @@ export class SaleLimitsByNumberController {
       gameId: dto.gameId,
       label: dto.label,
       amount: dto.amount,
+      minAmount: dto.minAmount,
     });
   }
 

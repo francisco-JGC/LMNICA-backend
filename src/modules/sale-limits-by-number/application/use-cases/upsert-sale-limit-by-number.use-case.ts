@@ -29,6 +29,7 @@ export interface UpsertSaleLimitByNumberInput {
   gameId: string;
   label: string;
   amount: number;
+  minAmount?: number | null;
 }
 
 /**
@@ -82,6 +83,7 @@ export class UpsertSaleLimitByNumber
 
     if (existing) {
       existing.setAmount(input.amount);
+      existing.setMinAmount(input.minAmount ?? null);
       await this.limits.save(existing);
       return toSaleLimitByNumberOutput(existing);
     }
@@ -91,6 +93,7 @@ export class UpsertSaleLimitByNumber
       gameId: input.gameId,
       label,
       amount: input.amount,
+      minAmount: input.minAmount ?? null,
     });
     await this.limits.save(created);
     return toSaleLimitByNumberOutput(created);

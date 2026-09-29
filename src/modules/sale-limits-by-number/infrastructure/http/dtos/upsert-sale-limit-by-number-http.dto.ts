@@ -2,6 +2,7 @@ import { Type } from 'class-transformer';
 import {
   IsInt,
   IsNotEmpty,
+  IsOptional,
   IsString,
   IsUUID,
   MaxLength,
@@ -24,4 +25,10 @@ export class UpsertSaleLimitByNumberHttpDto {
   @IsInt()
   @Min(1)
   amount!: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  minAmount?: number | null;
 }

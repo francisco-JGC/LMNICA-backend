@@ -57,6 +57,14 @@ export class SaleLimitByNumber extends AggregateRoot<SaleLimitByNumberProps> {
     this.props.updatedAt = new Date();
   }
 
+  setMinAmount(minAmount: number | null): void {
+    if (minAmount !== null) {
+      SaleLimitByNumber.assertAmount(minAmount);
+    }
+    this.props.minAmount = minAmount;
+    this.props.updatedAt = new Date();
+  }
+
   get salePointId(): string {
     return this.props.salePointId;
   }
