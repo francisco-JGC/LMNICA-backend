@@ -142,6 +142,14 @@ export class TypeOrmUsersRepository implements UsersRepository {
       if (rows.length < CHUNK) break;
     }
 
+    // Las cuotas del vendedor en la sucursal anterior quedan huérfanas:
+    // seguirían reduciendo el pool disponible para los demás vendedores
+    // aunque el vendedor ya no esté ahí. Se borran para liberar el pool.
+    await this.repo.manager.query(
+      `DELETE FROM sale_limits_by_seller_number WHERE seller_id = $1`,
+      [userId],
+    );
+
     return { ticketsMoved, movementsMoved };
   }
 
