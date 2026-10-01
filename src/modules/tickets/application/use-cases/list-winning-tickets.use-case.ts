@@ -126,9 +126,13 @@ export class ListWinningTickets
       if (ms < minDraw) minDraw = ms;
       if (ms > maxDraw) maxDraw = ms;
     }
+    // Ampliar el rango ±1 minuto para absorber desfases sub-minuto entre el
+    // drawAt del boleto (puede tener segundos del cliente) y el drawAt del
+    // resultado (exactamente a la hora programada). La clave usa precisión
+    // de minuto para que coincidan aunque no sean idénticos al milisegundo.
     const drawResults = await this.results.findMany({
-      from: new Date(minDraw),
-      to: new Date(maxDraw),
+      from: new Date(Math.floor(minDraw / 60_000) * 60_000),
+      to: new Date(Math.floor(maxDraw / 60_000) * 60_000 + 59_999),
     });
     const resultsByKey = new Map<string, DrawResult>();
     for (const r of drawResults) {
@@ -168,6 +172,10 @@ export class ListWinningTickets
   }
 
   private resultKey(gameId: string, drawAt: Date): string {
-    return `${gameId}::${drawAt.getTime()}`;
+    // Precisión de minuto: absorbe desfases sub-minuto entre el drawAt
+    // del boleto (cliente) y el drawAt del resultado (admin, exactamente
+    // en el minuto del horario). Dos sorteos del mismo juego no pueden
+    // caer en el mismo minuto, así que la clave sigue siendo unívoca.
+    return `${gameId}::${Math.floor(drawAt.getTime() / 60_000)}`;
   }
 }

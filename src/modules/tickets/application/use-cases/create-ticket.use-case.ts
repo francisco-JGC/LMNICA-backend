@@ -323,9 +323,21 @@ export class CreateTicket implements UseCase<CreateTicketApplicationInput, Ticke
       );
     }
 
+    // Normalizar al instante exacto del horario — el cliente móvil puede
+    // enviar sub-milisegundos de desfase que rompen la clave en el evaluador
+    // masivo de ganadores. Todos los tickets del mismo sorteo quedan con el
+    // mismo drawAt, que coincide con el draw_result registrado por el admin.
+    const normalizedDrawAt = fromBusinessWallClock(
+      wall.year,
+      wall.month,
+      wall.day,
+      wall.hour,
+      wall.minute,
+    );
+
     const now = new Date();
     const cutoffAt = new Date(
-      drawAt.getTime() - matching.cutoffMinutes * 60_000,
+      normalizedDrawAt.getTime() - matching.cutoffMinutes * 60_000,
     );
     if (now >= cutoffAt) {
       throw new ValidationError(
@@ -333,7 +345,7 @@ export class CreateTicket implements UseCase<CreateTicketApplicationInput, Ticke
       );
     }
 
-    return { drawAt, cutoffMinutes: matching.cutoffMinutes };
+    return { drawAt: normalizedDrawAt, cutoffMinutes: matching.cutoffMinutes };
   }
 
   private cleanClient(value: string | null): string | null {
