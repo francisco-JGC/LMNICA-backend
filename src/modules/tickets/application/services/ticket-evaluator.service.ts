@@ -126,8 +126,13 @@ export class TicketEvaluator {
     switch (gameType) {
       case GameType.REGULAR:
       case GameType.FOUR_DIGIT:
-      case GameType.DATE:
         return this.normalizeLabel(label) === winningNumber.toLowerCase();
+      case GameType.DATE:
+        // El label del boleto usa espacio y sin zero-pad ("5 ene") mientras que
+        // el winningNumber se almacena con guión y zero-pad ("05-ene"). Ambos
+        // lados se normalizan a "day:abbr" (sin separador, sin zero-pad) para
+        // que la comparación sea invariante al separador y al padding del día.
+        return this.normalizeDateLabel(label) === this.normalizeDateLabel(winningNumber);
       case GameType.THREE_DIGIT: {
         const isFalso = /\(F\)/i.test(label);
         const digits = label.replace(/\(F\)/i, '').trim();
@@ -143,6 +148,17 @@ export class TicketEvaluator {
 
   private normalizeLabel(label: string): string {
     return label.replace(/\(F\)/i, '').trim().toLowerCase();
+  }
+
+  private normalizeDateLabel(value: string): string {
+    // Acepta "15 ene", "15-ene", "05-ene", "5/ene" — cualquier separador.
+    // Devuelve "15:ene" (día sin zero-pad + ":" + abreviatura) para comparar
+    // sin que importe el separador ni el zero-padding del día.
+    const parts = value.trim().toLowerCase().split(/[\s\-\/]+/);
+    if (parts.length !== 2) return value.trim().toLowerCase();
+    const day = parseInt(parts[0], 10);
+    if (isNaN(day)) return value.trim().toLowerCase();
+    return `${day}:${parts[1]}`;
   }
 
   private sortDigits(value: string): string {
