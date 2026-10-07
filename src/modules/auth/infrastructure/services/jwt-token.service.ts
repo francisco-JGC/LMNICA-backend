@@ -4,6 +4,7 @@ import { JwtService } from '@nestjs/jwt';
 
 import type { AppConfig } from '../../../../shared/infrastructure/config/env.config';
 import {
+  REFRESH_TOKEN_TYPE,
   RefreshTokenPayload,
   TokenPayload,
   TokenService,
@@ -35,7 +36,7 @@ export class JwtTokenService implements TokenService {
   }
 
   signRefresh(userId: string): Promise<string> {
-    const payload: RefreshTokenPayload = { sub: userId, type: 'refresh' };
+    const payload: RefreshTokenPayload = { sub: userId, type: REFRESH_TOKEN_TYPE };
     // Cast mirrors AuthModule's signOptions — an "expiresIn" string like
     // "30d" isn't in the @nestjs/jwt strict overload set.
     return this.jwt.signAsync(payload, {
@@ -45,9 +46,9 @@ export class JwtTokenService implements TokenService {
 
   async verifyRefresh(token: string): Promise<RefreshTokenPayload> {
     const decoded = await this.jwt.verifyAsync<Record<string, unknown>>(token);
-    if (decoded.type !== 'refresh' || typeof decoded.sub !== 'string') {
+    if (decoded.type !== REFRESH_TOKEN_TYPE || typeof decoded.sub !== 'string') {
       throw new Error('Not a refresh token');
     }
-    return { sub: decoded.sub, type: 'refresh' };
+    return { sub: decoded.sub, type: REFRESH_TOKEN_TYPE };
   }
 }

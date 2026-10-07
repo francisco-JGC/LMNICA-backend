@@ -6,10 +6,18 @@ export interface TokenPayload {
   role: string;
 }
 
+/**
+ * Valor del claim `type` que marca un refresh token. Access y refresh se
+ * firman con el mismo secreto, así que este discriminador es lo único que
+ * los separa: sin él un refresh token (30d de vida) pasaría como
+ * credencial de acceso. Vive acá para que emisor y verificadores compartan
+ * literalmente el mismo valor.
+ */
+export const REFRESH_TOKEN_TYPE = 'refresh';
+
 export interface RefreshTokenPayload {
   sub: string;
-  /** Discriminator so a stolen access token can't be replayed as a refresh. */
-  type: 'refresh';
+  type: typeof REFRESH_TOKEN_TYPE;
 }
 
 export interface TokenService {
