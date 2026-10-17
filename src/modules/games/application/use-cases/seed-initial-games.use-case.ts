@@ -30,6 +30,7 @@ const INITIAL_GAMES: readonly InitialGame[] = [
   { slug: 'primera', name: 'Primera', type: GameType.REGULAR, exactMultiplier: 80, easyMultiplier: null, pairEasyMultiplier: null },
   { slug: 'salvadorena', name: 'Salvadoreña', type: GameType.REGULAR, exactMultiplier: 80, easyMultiplier: null, pairEasyMultiplier: null },
   { slug: 'rifas', name: 'Rifas', type: GameType.REGULAR, exactMultiplier: 80, easyMultiplier: null, pairEasyMultiplier: null },
+  { slug: 'juga4', name: 'Juga 4', type: GameType.FOUR_DIGIT, exactMultiplier: 6000, easyMultiplier: null, pairEasyMultiplier: null },
   { slug: 'multisorteo', name: 'Multi Sorteo', type: GameType.MULTI_SORTEO, exactMultiplier: null, easyMultiplier: null, pairEasyMultiplier: null },
 ];
 
