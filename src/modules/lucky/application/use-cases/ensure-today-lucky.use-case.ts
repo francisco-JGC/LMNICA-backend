@@ -7,7 +7,6 @@ import {
 } from '../../domain/repositories/lucky-dailies.repository';
 import { LuckyKind } from '../../domain/value-objects/lucky-kind';
 import { CrossGenerator } from '../services/cross-generator.service';
-import { PyramidGenerator } from '../services/pyramid-generator.service';
 
 @Injectable()
 export class EnsureTodayLucky {
@@ -17,22 +16,17 @@ export class EnsureTodayLucky {
     @Inject(LUCKY_DAILIES_REPOSITORY)
     private readonly repo: LuckyDailiesRepository,
     private readonly crossGen: CrossGenerator,
-    private readonly pyramidGen: PyramidGenerator,
   ) {}
 
   async execute(now: Date = new Date()): Promise<void> {
     const today = this.startOfDay(now);
     await this.ensure(LuckyKind.CROSS, today);
-    await this.ensure(LuckyKind.PYRAMID, today);
   }
 
   private async ensure(kind: LuckyKind, forDate: Date): Promise<void> {
     const existing = await this.repo.findForDate(kind, forDate);
     if (existing) return;
-    const payload =
-      kind === LuckyKind.CROSS
-        ? this.crossGen.generate()
-        : this.pyramidGen.generate();
+    const payload = this.crossGen.generate();
     const entry = LuckyDaily.create({ kind, forDate, payload });
     await this.repo.save(entry);
     this.logger.log(`Generated ${kind} for ${forDate.toDateString()}`);

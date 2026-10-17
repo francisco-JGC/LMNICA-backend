@@ -13,13 +13,7 @@ export interface CrossPayload {
   recommended: string[];
 }
 
-export interface PyramidPayload {
-  kind: LuckyKind.PYRAMID;
-  rows: number[][];
-  recommended: string[];
-}
-
-export type LuckyPayload = CrossPayload | PyramidPayload;
+export type LuckyPayload = CrossPayload;
 
 export interface LuckyDailyProps {
   kind: LuckyKind;

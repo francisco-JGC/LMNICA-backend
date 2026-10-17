@@ -2,7 +2,6 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { CrossGenerator } from './application/services/cross-generator.service';
-import { PyramidGenerator } from './application/services/pyramid-generator.service';
 import { EnsureTodayLucky } from './application/use-cases/ensure-today-lucky.use-case';
 import { FindLuckyForDate } from './application/use-cases/find-lucky-for-date.use-case';
 import { ListLuckyHistory } from './application/use-cases/list-lucky-history.use-case';
@@ -21,7 +20,6 @@ import { TypeOrmLuckyDailiesRepository } from './infrastructure/persistence/repo
       useClass: TypeOrmLuckyDailiesRepository,
     },
     CrossGenerator,
-    PyramidGenerator,
     EnsureTodayLucky,
     FindLuckyForDate,
     ListLuckyHistory,
