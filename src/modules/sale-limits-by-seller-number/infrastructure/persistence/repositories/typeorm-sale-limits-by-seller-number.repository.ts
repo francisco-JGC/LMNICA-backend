@@ -50,16 +50,42 @@ export class TypeOrmSaleLimitsBySellerNumberRepository
     await this.repo.delete({ id });
   }
 
+  /**
+   * Cuotas vigentes de un número en una sucursal.
+   *
+   * Solo cuentan las de vendedores que HOY pertenecen a esa sucursal y
+   * están activos. Una cuota de alguien que se fue o fue desactivado
+   * sigue existiendo en la tabla, pero dejó de ser una reserva legítima:
+   * `enforceSaleLimit` calcula `pool = tope − suma de cuotas`, así que
+   * contarla congela cupo para quien no puede venderlo y bloquea al resto
+   * mucho antes de llegar al tope real.
+   *
+   * Esto pasó en producción: una cuota de 1000 sobre un tope de 1300, de
+   * un vendedor ya trasladado, dejaba a los demás con 300 — y en otra
+   * sucursal el pool quedaba negativo, bloqueando el número por completo.
+   *
+   * El filtro va acá y no en `enforceSaleLimit` porque es una propiedad
+   * de qué cuotas son reales, no de cómo se aplican.
+   */
   async quotasFor(
     salePointId: string,
     gameId: string,
     label: string,
   ): Promise<Map<string, number>> {
-    const rows = await this.repo.find({
-      where: { salePointId, gameId, label },
-      select: { sellerId: true, amount: true },
-    });
-    return new Map(rows.map((r) => [r.sellerId, r.amount]));
+    const rows = await this.repo
+      .createQueryBuilder('q')
+      .innerJoin(
+        'users',
+        'u',
+        'u.id = q.seller_id AND u.is_active = true AND u.sale_point_id = q.sale_point_id',
+      )
+      .select(['q.seller_id AS seller_id', 'q.amount AS amount'])
+      .where('q.sale_point_id = :salePointId', { salePointId })
+      .andWhere('q.game_id = :gameId', { gameId })
+      .andWhere('q.label = :label', { label })
+      .getRawMany<{ seller_id: string; amount: number }>();
+
+    return new Map(rows.map((r) => [r.seller_id, Number(r.amount)]));
   }
 
   async findQuotaForSeller(
