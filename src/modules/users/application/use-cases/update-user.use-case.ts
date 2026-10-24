@@ -60,6 +60,29 @@ export class UpdateUser implements UseCase<UpdateUserInput, UserOutput> {
       }
     }
 
+    // Cambiar la sucursal de un vendedor NO se hace por acá.
+    //
+    // Mover un vendedor implica tres cosas además de cambiarle el campo:
+    // arrastrar sus boletos, arrastrar sus movimientos y borrar sus cuotas
+    // en la sucursal vieja. Eso vive en `TransferSellerBranch`. Si se
+    // permite cambiarlo con un update suelto queda una migración a medias:
+    // el vendedor en la sucursal nueva, y su historial y sus cuotas en la
+    // anterior.
+    //
+    // Pasó en producción: una cuota de 1000 quedó anclada a la sucursal
+    // vieja y, como `pool = tope − cuotas`, bloqueó al resto del equipo
+    // mucho antes del tope real.
+    if (
+      user.role === UserRole.SELLER &&
+      input.salePointId !== undefined &&
+      input.salePointId !== user.salePointId
+    ) {
+      throw new ValidationError(
+        'Para cambiar de sucursal a un vendedor usá el traslado, que ' +
+          'además mueve sus boletos y movimientos y libera sus cuotas.',
+      );
+    }
+
     // Enforce the same invariant as CreateUser: non-sellers cannot have
     // a salePointId. If the role transitions to non-seller we auto-clear
     // salePointId; if the client tries to set salePointId non-null on a
